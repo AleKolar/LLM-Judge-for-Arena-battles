@@ -66,7 +66,7 @@ async def declare_winner(
     if not isinstance(results, list) or len(results) < 2:
         raise HTTPException(400, "Некорректные данные битвы в БД")
 
-    decision = judge_winner(results)
+    decision = await judge_winner(results, request.app.state.http_session)
 
     last_battle.winner = decision["winners"][0] if decision["winners"] else "draw"
     last_battle.message = decision["message"]

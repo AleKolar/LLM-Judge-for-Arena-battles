@@ -27,6 +27,8 @@ AVAILABLE_MODELS = {
 
 DEFAULT_MODELS = ["gpt-4o-mini", "deepseek-chat"]
 
+JUDGE_MODEL = "deepseek-chat"
+
 def load_prompt(filename: str) -> str:
     """Читает промпт из файла в папке prompts."""
     prompt_dir = Path(__file__).resolve().parent.parent / "prompts"
@@ -36,6 +38,8 @@ def load_prompt(filename: str) -> str:
     return file_path.read_text(encoding="utf-8").strip()
 
 SYSTEM_PROMPT = load_prompt("system_prompt.md")
+
+JUDGE_PROMPT_TEMPLATE = load_prompt("judge_prompt.md")
 
 async def fetch_from_model(session: aiohttp.ClientSession, model_id: str, prompt: str) -> dict:
     if not API_KEY:
@@ -87,6 +91,66 @@ async def compare_models(
     return {"results": results}
 
 
+def split_code_and_tests(content: str) -> tuple[str, str]:
+    """Разделяет код на функцию и тесты."""
+    lines = content.split('\n')
+    func_lines = []
+    test_lines = []
+    in_func = False
+    in_tests = False
+    
+    for line in lines:
+        if line.startswith('def is_leap_year'):
+            in_func = True
+        if in_func and line.strip().startswith('def test_'):
+            in_tests = True
+            in_func = False
+        if in_func:
+            func_lines.append(line)
+        elif in_tests:
+            test_lines.append(line)
+    
+    return '\n'.join(func_lines), '\n'.join(test_lines)
+
+
+async def ask_judge(
+    session: aiohttp.ClientSession,
+    model1: str,
+    code1: str,
+    tests1: str,
+    model2: str,
+    code2: str,
+    tests2: str
+) -> dict:
+    """Отправляет запрос Судье (deepseek-chat) для определения победителя."""
+    import json
+
+    prompt = JUDGE_PROMPT_TEMPLATE.format(
+        model1=model1,
+        code1=code1,
+        tests1=tests1,
+        model2=model2,
+        code2=code2,
+        tests2=tests2
+    )
+
+    judge_id = AVAILABLE_MODELS[JUDGE_MODEL]
+    response = await fetch_from_model(session, judge_id, prompt)
+
+    if response["status"] != "success":
+        return {"error": f"Судья не ответил: {response['content']}"}
+
+    try:
+        verdict = json.loads(response["content"])
+        winner = verdict.get("winner")
+        reason = verdict.get("reason", "Без обоснования")
+        if winner not in [model1, model2]:
+            return {"error": f"Неверный победитель: {winner}"}
+        return {"winner": winner, "reason": reason}
+    except json.JSONDecodeError:
+        return {"error": f"Неверный формат ответа Судьи: {response['content']}"}
+
+
 def analyze_tests(code: str) -> dict:
     """Оценивает качество тестов на основе покрытия ключевых случаев и стиля."""
 
@@ -123,7 +187,7 @@ def analyze_tests(code: str) -> dict:
     }
 
 
-def judge_winner(results: list[dict]) -> dict:
+async def judge_winner(results: list[dict], session: aiohttp.ClientSession) -> dict:
     winners, losers = [], []
     evidence = []
     pattern = re.compile(r'(year\s*%\s*400\s*==\s*0|not\s+year\s*%\s*400|year\s*%\s*400\b)')
@@ -158,6 +222,92 @@ def judge_winner(results: list[dict]) -> dict:
         found_rule = bool(match)
         snippet = match.group(0) if match else ""
         test_stats = analyze_tests(code)  # функция возвращает dict с ключами: num_asserts, coverage_points, has_*, ...
+
+        evidence.append({
+            "model": model,
+            "found_rule": found_rule,
+            "snippet": snippet,
+            "status": "success",
+            **test_stats
+        })
+
+        if found_rule:
+            winners.append(model)
+        else:
+            losers.append(model)
+
+    # Определение победителя
+    successful_results = [r for r in results if r.get("status") == "success"]
+    if len(successful_results) == 2:
+        # Две успешные модели — Судья решает
+        res1, res2 = successful_results
+        code1 = res1["content"]
+        code2 = res2["content"]
+        model1 = res1["model"]
+        model2 = res2["model"]
+        
+        # Разделим код на функцию и тесты
+        func1, tests1 = split_code_and_tests(code1)
+        func2, tests2 = split_code_and_tests(code2)
+        
+        judge_result = await ask_judge(session, model1, func1, tests1, model2, func2, tests2)
+        
+        if "error" in judge_result:
+            # Fallback к старой логике
+            return await judge_winner_fallback(results)
+        
+        winner = judge_result["winner"]
+        reason = judge_result["reason"]
+        msg = f"🏆 Судья решил: {winner} побеждает! Причина: {reason}"
+        final_winners = [winner]
+        losers = [m for m in [model1, model2] if m != winner]
+    else:
+        # Старая логика для других случаев
+        return await judge_winner_fallback(results)
+
+    return {
+        "winners": final_winners,
+        "losers": losers,
+        "message": msg,
+        "evidence": evidence
+    }
+
+
+async def judge_winner_fallback(results: list[dict]) -> dict:
+    winners, losers = [], []
+    evidence = []
+    pattern = re.compile(r'(year\s*%\s*400\s*==\s*0|not\s+year\s*%\s*400|year\s*%\s*400\b)')
+
+    for res in results:
+        code = res.get("content", "")
+        model = res.get("model", "unknown")
+        status = res.get("status", "success")
+
+        # Если модель вернула ошибку – сразу в проигравшие, без анализа правила
+        if status == "error":
+            evidence.append({
+                "model": model,
+                "found_rule": False,
+                "snippet": "",
+                "status": "error",
+                "num_asserts": 0,
+                "coverage_points": 0,
+                "has_assert_messages": False,
+                "has_1900": False,
+                "has_2000": False,
+                "has_2100": False,
+                "has_negative": False,
+                "has_typical_leap": False,
+                "has_typical_common": False,
+            })
+            losers.append(model)
+            continue
+
+        # Нормальный ответ – анализируем правило и тесты
+        match = pattern.search(code)
+        found_rule = bool(match)
+        snippet = match.group(0) if match else ""
+        test_stats = analyze_tests(code)
 
         evidence.append({
             "model": model,

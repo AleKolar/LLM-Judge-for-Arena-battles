@@ -201,17 +201,41 @@ def test_last_result(client):
     assert resp.status_code in (200, 404)
 
 
-def test_judge_winner_simple():
+@pytest.mark.asyncio
+async def test_judge_winner_simple():
     results = [
         {"model": "A", "content": "def f(): return True", "status": "success"},
         {"model": "B", "content": "error", "status": "error"},
     ]
 
-    res = judge_winner(results)
+    # Mock session
+    session = AsyncMock()
+
+    res = await judge_winner(results, session)
 
     assert "winners" in res
     assert "losers" in res
     assert "message" in res
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_with_judge():
+    results = [
+        {"model": "A", "content": "def is_leap_year(year): return year % 4 == 0\ndef test(): assert True", "status": "success"},
+        {"model": "B", "content": "def is_leap_year(year): return year % 4 == 0\ndef test(): assert True", "status": "success"},
+    ]
+
+    # Mock session and ask_judge
+    session = AsyncMock()
+    with patch('src.services.ai_service.ask_judge', new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {"winner": "A", "reason": "Better code"}
+        
+        res = await judge_winner(results, session)
+        
+        assert res["winners"] == ["A"]
+        assert res["losers"] == ["B"]
+        assert "Судья решил" in res["message"]
+        mock_ask.assert_called_once()
 
 # =========================
 # TESTS: SCHEMAS
