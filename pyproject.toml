@@ -1,0 +1,40 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+# Папки, которые проверяем
+include = ["src/**/*.py"]
+
+# Что исключаем
+exclude = [
+    ".venv",
+    "alembic",
+    "__pycache__",
+]
+
+# Правила (самый важный блок)
+lint.select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear (антипаттерны)
+    "UP",  # pyupgrade
+    "ASYNC", # async best practices
+]
+
+lint.ignore = [
+    "E501",  # line too long (мы контролируем через black-like style)
+    "B008",  # FastAPI Depends() иногда ругается — норм
+]
+
+# Автоисправления
+fix = true
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = [
+    "E712",  # True/False сравнения (в тестах иногда норм)
+    "S101",  # assert allowed in tests
+]
