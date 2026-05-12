@@ -101,7 +101,7 @@ def test_main_page(client):
 # LLM ARENA (PRODUCTION MOCK LAYER)
 # =========================
 
-def _mock_llm_response(model, content):
+def _mock_llm_response(model: str, content: str) -> dict:
     return {
         "model": model,
         "content": content,
@@ -112,33 +112,73 @@ def _mock_llm_response(model, content):
 @pytest.mark.asyncio
 async def test_compare_models(client):
     """
-    Production pattern:
-    - mock LLM boundary only
-    - do NOT mock internal logic
+    Production-style AI eval test:
+    - mock external LLM boundary only
+    - keep internal arena logic real
+    - deterministic judge verdict
     """
 
-    with patch("src.services.ai_service.fetch_from_model", new_callable=AsyncMock) as mock_fetch:
+    with patch(
+        "src.services.ai_service.fetch_from_model",
+        new_callable=AsyncMock
+    ) as mock_fetch:
 
         mock_fetch.side_effect = [
+
+            # MODEL_A
             _mock_llm_response(
                 "openai/gpt-4o-mini",
                 "def is_leap(y): return y % 400 == 0 or (y % 4 == 0 and y % 100 != 0)"
             ),
+
+            # MODEL_B
             _mock_llm_response(
                 "deepseek/deepseek-chat",
                 "def is_leap(y): return y % 4 == 0"
             ),
+
+            # JUDGE
+            {
+                "model": "deepseek/deepseek-chat",
+                "status": "success",
+                "content": """
+                {
+                    "winner": "MODEL_A",
+                    "reason": "MODEL_A correctly handles century years while MODEL_B incorrectly treats all divisible-by-4 years as leap years."
+                }
+                """
+            },
         ]
 
         resp = client.post(
             "/api/llm-arena/compare",
-            json={"models": ["gpt-4o-mini", "deepseek-chat"]},
+            json={
+                "models": [
+                    "gpt-4o-mini",
+                    "deepseek-chat"
+                ]
+            },
         )
 
         assert resp.status_code == 200
 
         data = resp.json()
+
         assert len(data["results"]) == 2
+        assert "judge" in data
+
+        judge = data["judge"]
+
+        assert judge["winners"][0] == "openai/gpt-4o-mini"
+        assert judge["losers"] == ["deepseek/deepseek-chat"]
+
+        assert "reason" in judge["judge_result"]
+
+        assert (
+            "century years"
+            in judge["judge_result"]["reason"]
+        )
+
         assert isinstance(data["elapsed"], (int, float))
 
 

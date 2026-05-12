@@ -273,11 +273,11 @@ async def judge_winner(
         winner = successful_results[0]
 
         return {
-            "winners": [winner],
+            "winners": [winner["model"]],
             "losers": [
                 r["model"] for r in failed_results
             ],
-            "message": f"🏆 Победитель: {winner} (вторая модель завершилась ошибкой)",
+            "message": f"🏆 Победитель: {winner["model"]} (вторая модель завершилась ошибкой)",
             "judge_result": None,
             "evidence": results,
         }
