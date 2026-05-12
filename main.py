@@ -9,7 +9,7 @@ from sqlalchemy import text
 from starlette.staticfiles import StaticFiles
 
 from src.database.database import async_engine
-from src.routers import leap_year, llm_arena
+from src.routers import llm_arena
 from src.services.ai_service import API_KEY
 
 logger = logging.getLogger("uvicorn")
@@ -56,7 +56,6 @@ templates = Jinja2Templates(directory="src/templates")
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 # Подключаем роутеры
-app.include_router(leap_year.router)
 app.include_router(llm_arena.router)
 
 @app.get("/", response_class=HTMLResponse)

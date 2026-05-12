@@ -260,25 +260,23 @@ async def judge_winner(
     if len(successful_results) == 0:
         return {
             "winners": [],
-            "losers": [
-                r["model"] for r in failed_results
-            ],
+            "losers": [r["model"] for r in failed_results],
             "message": "❌ Все модели завершились ошибкой.",
             "judge_result": None,
+            "reason": "Обе модели не смогли выполнить задание.",
             "evidence": failed_results,
         }
 
     # Если одна модель упала
     if len(successful_results) == 1:
         winner = successful_results[0]
-
+        loser_model = failed_results[0]["model"] if failed_results else "неизвестная модель"
         return {
             "winners": [winner["model"]],
-            "losers": [
-                r["model"] for r in failed_results
-            ],
-            "message": f"🏆 Победитель: {winner["model"]} (вторая модель завершилась ошибкой)",
+            "losers": [r["model"] for r in failed_results],
+            "message": f"🏆 Победитель: {winner['model']} (вторая модель завершилась ошибкой)",
             "judge_result": None,
+            "reason": f"Модель {loser_model} завершилась с ошибкой, поэтому побеждает {winner['model']} по умолчанию.",
             "evidence": results,
         }
 
@@ -334,12 +332,17 @@ async def judge_winner(
         "Судья выбрал победителя."
     )
 
+    reason = judge_result.get("reason", "")
+    reason = reason.replace("MODEL_A", model1).replace("MODEL_B", model2)
+    judge_result["reason"] = reason  # обновляем внутри judge_result
+
     return {
         "winners": [winner],
         "losers": losers,
-        "message": f"🏆 Победитель: {winner_display}",
+        "message": f"🏆 Победитель: {prettify_model_name(winner)}",
         "judge_result": judge_result,
         "summary": summary,
+        "reason": reason,
         "evidence": results,
     }
 

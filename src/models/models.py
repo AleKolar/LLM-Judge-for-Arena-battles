@@ -17,13 +17,12 @@ class WinnerResponse(BaseModel):
     winners: list[str]
     losers: list[str]
     message: str
-
     summary: str | None = None
-
+    reason: str | None = None
     judge_result: dict | None = None
     judge_error: dict | None = None
-
     evidence: list[ModelEvidence] = []
+
 
 class BattleHistoryResponse(BaseModel):
 
@@ -36,16 +35,3 @@ class BattleHistoryResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class RuleCheckSchema(BaseModel):
-    divisible_by_4: bool
-    divisible_by_100: bool
-    divisible_by_400: bool
-    exception_handled: bool = True
-
-class YearCheckResponse(BaseModel):
-    year: int
-    is_leap: bool
-    description: str
-    days: int
-    celebrity: str | None = None
-    rule_check: RuleCheckSchema

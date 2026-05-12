@@ -39,57 +39,6 @@ def client():
     app.dependency_overrides.clear()
 
 
-# =========================
-# CORE LOGIC TESTS
-# =========================
-
-@pytest.mark.parametrize(
-    "year,expected",
-    [
-        (2024, True),
-        (2000, True),
-        (0, True),
-        (-400, True),
-        (1900, False),
-        (1800, False),
-        (2100, False),
-        (2023, False),
-        (1, False),
-    ],
-)
-def test_is_leap_year(year, expected):
-    from src.services.leap_year_service import is_leap_year
-
-    assert is_leap_year(year) == expected
-
-
-def test_check_year(client):
-    resp = client.get("/api/check/2000")
-
-    assert resp.status_code == 200
-    data = resp.json()
-
-    assert data["is_leap"] is True
-    assert data["days"] == 366
-
-
-def test_check_1900(client):
-    resp = client.get("/api/check/1900")
-
-    assert resp.status_code == 200
-    data = resp.json()
-
-    assert data["is_leap"] is False
-    assert data["rule_check"]["divisible_by_100"] is True
-
-
-def test_stats(client):
-    resp = client.get("/api/stats")
-
-    assert resp.status_code == 200
-    assert "total_checks" in resp.json()
-
-
 def test_main_page(client):
     resp = client.get("/")
 
