@@ -1,9 +1,7 @@
 # src/routers/llm_arena.py
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.database.database import get_async_db
 from src.models.db_models import ArenaResult
 from src.models.models import BattleHistoryResponse, CompareRequest, WinnerResponse
@@ -31,21 +29,16 @@ async def run_comparison(
     payload: CompareRequest,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Запускает две модели, сохраняет evidence в БД,
-    возвращает arena_result_id и ответы моделей (без судьи).
-    """
     session = request.app.state.http_session
     models = payload.models or DEFAULT_MODELS
     if len(models) < 2:
         raise HTTPException(400, "Нужно выбрать две модели")
 
     result = await run_arena_comparison(models, session, payload.prompt)
-
     battle = ArenaResult(
         model1=models[0],
         model2=models[1],
-        winner=None,                # будет определён позже
+        winner=None,
         message="Ожидает решения судьи",
         evidence=result.get("results", [])
     )
@@ -53,7 +46,6 @@ async def run_comparison(
     await db.commit()
     await db.refresh(battle)
 
-    # Возвращаем ID битвы и ответы моделей
     return {
         "arena_result_id": battle.id,
         "results": result.get("results", []),
@@ -67,9 +59,6 @@ async def declare_winner(
     request: Request,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Принимает ID битвы, вызывает судью и обновляет запись в БД.
-    """
     battle = await get_battle_by_id(db, battle_id)
     if not battle:
         raise HTTPException(404, f"Битва с id={battle_id} не найдена")
@@ -83,9 +72,11 @@ async def declare_winner(
     if decision.get("winners"):
         battle.winner = decision["winners"][0]
         battle.message = decision["message"]
+        battle.judge_reason = decision.get("reason", "")   # <-- СОХРАНЯЕМ
     else:
         battle.winner = None
         battle.message = decision["message"]
+        battle.judge_reason = decision.get("reason", "")
     await db.commit()
 
     return WinnerResponse(**decision)
@@ -99,33 +90,11 @@ async def get_history(db: AsyncSession = Depends(get_async_db)):
     return battles
 
 
-@router.get("/last-result")
-async def get_last_result(db: AsyncSession = Depends(get_async_db)):
-    last_battle = await get_last_result_service(db)
-    if not last_battle:
-        raise HTTPException(404, "История битв пуста")
-
-    evidence = normalize_evidence(last_battle.evidence)
-    evidence_md = to_md(evidence)
-    markdown = (
-        f"# 🧠 LLM Arena Result\n\n"
-        f"## 🏆 Result\n{last_battle.message}\n\n"
-        f"---\n\n"
-        f"## 📊 Evidence\n\n"
-        f"{evidence_md}"
-    )
-    return Response(
-        content=markdown,
-        media_type="text/markdown",
-        headers={"Content-Disposition": "attachment; filename=last_result.md"}
-    )
-
 @router.get("/download-result/{battle_id}")
 async def download_result(
     battle_id: int,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Скачать результат конкретной битвы в формате Markdown."""
     battle = await get_battle_by_id(db, battle_id)
     if not battle:
         raise HTTPException(404, f"Битва с id={battle_id} не найдена")
@@ -133,20 +102,32 @@ async def download_result(
     evidence = normalize_evidence(battle.evidence)
     evidence_md = to_md(evidence)
 
-    # Определяем победителя и комментарий
     winner_text = "Ничья" if not battle.winner else prettify_model_name(battle.winner)
     verdict = battle.message or "Результат не определён"
+    reason = battle.judge_reason or "Комментарий отсутствует"
+
+    model1_full = AVAILABLE_MODELS.get(battle.model1, battle.model1)
+    model2_full = AVAILABLE_MODELS.get(battle.model2, battle.model2)
+
+    # ✅ Исправление: всегда определяем status1 и status2
+    if battle.winner:
+        status1 = "✅" if battle.winner == model1_full else "❌"
+        status2 = "✅" if battle.winner == model2_full else "❌"
+    else:
+        status1 = "🤝"
+        status2 = "🤝"
 
     markdown = (
         f"# 🧠 LLM Arena — Результат битвы\n\n"
         f"## 🏆 Победитель\n{winner_text}\n\n"
         f"## ⚖️ Вердикт Судьи\n{verdict}\n\n"
+        f"## 📋 Комментарии к результату\n{reason}\n\n"
         f"---\n\n"
-        f"## 📊 Комментарии к результату\n\n"
+        f"## 📊 Статус моделей\n\n"
         f"| Модель | Статус |\n"
         f"|--------|--------|\n"
-        f"| {battle.model1} | {'✅' if any(e.get('model') == battle.model1 and e.get('status') == 'success' for e in evidence) else '❌'} |\n"
-        f"| {battle.model2} | {'✅' if any(e.get('model') == battle.model2 and e.get('status') == 'success' for e in evidence) else '❌'} |\n\n"
+        f"| {battle.model1} | {status1} |\n"
+        f"| {battle.model2} | {status2} |\n\n"
         f"---\n\n"
         f"## 📝 Код моделей\n\n"
         f"{evidence_md}"
@@ -163,7 +144,6 @@ async def download_result(
 
 @router.get("/last-result")
 async def get_last_result(db: AsyncSession = Depends(get_async_db)):
-    """Последняя битва с русскими заголовками (скачать)."""
     last_battle = await get_last_result_service(db)
     if not last_battle:
         raise HTTPException(404, "История битв пуста")
@@ -173,17 +153,30 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
 
     winner_text = "Ничья" if not last_battle.winner else prettify_model_name(last_battle.winner)
     verdict = last_battle.message or "Результат не определён"
+    reason = last_battle.judge_reason or "Комментарий отсутствует"
+
+    model1_full = AVAILABLE_MODELS.get(last_battle.model1, last_battle.model1)
+    model2_full = AVAILABLE_MODELS.get(last_battle.model2, last_battle.model2)
+
+    if last_battle.winner:  # есть победитель
+        status1 = "✅" if last_battle.winner == model1_full else "❌"
+        status2 = "✅" if last_battle.winner == model2_full else "❌"
+
+    else:  # ничья
+        status1 = "🤝"
+        status2 = "🤝"
 
     markdown = (
         f"# 🧠 LLM Arena — Результат битвы\n\n"
         f"## 🏆 Победитель\n{winner_text}\n\n"
         f"## ⚖️ Вердикт Судьи\n{verdict}\n\n"
+        f"## 📋 Комментарии к результату\n{reason}\n\n"
         f"---\n\n"
-        f"## 📊 Комментарии к результату\n\n"
+        f"## 📊 Статус моделей\n\n"
         f"| Модель | Статус |\n"
         f"|--------|--------|\n"
-        f"| {last_battle.model1} | {'✅' if any(e.get('model') == last_battle.model1 and e.get('status') == 'success' for e in evidence) else '❌'} |\n"
-        f"| {last_battle.model2} | {'✅' if any(e.get('model') == last_battle.model2 and e.get('status') == 'success' for e in evidence) else '❌'} |\n\n"
+        f"| {last_battle.model1} | {status1} |\n"
+        f"| {last_battle.model2} | {status2} |\n\n"
         f"---\n\n"
         f"## 📝 Код моделей\n\n"
         f"{evidence_md}"

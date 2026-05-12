@@ -12,5 +12,6 @@ class ArenaResult(Base):
     model2 = Column(String, nullable=False)
     winner = Column(String, nullable=True)           # "model1", "model2", "ничья" или None
     message = Column(String, nullable=False)
+    judge_reason = Column(String, nullable=True)
     evidence = Column(JSON, nullable=True)           # список доказательств / функции моделей и автотесты моделей
     created_at = Column(DateTime, server_default=func.now())

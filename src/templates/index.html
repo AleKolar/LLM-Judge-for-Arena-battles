@@ -74,6 +74,9 @@ button:disabled {
         👑 Решение судьи
     </button>
 
+    <!--<button id="downloadBtn" onclick="downloadResult()" disabled>📥 Скачать результат</button>-->
+    <button id="downloadBtn" onclick="downloadResult()" disabled style="display:none;">📥 Скачать результат</button>
+
 
 </div>
 
@@ -110,33 +113,39 @@ button:disabled {
 
     // 1️⃣ GENERATE
     async function runArena() {
-        arenaState = "generating";
-        document.getElementById("judgeBtn").disabled = true;
-        document.getElementById("code1").innerText = "Generating...";
-        document.getElementById("code2").innerText = "Generating...";
-        document.getElementById("winner").innerHTML = "";
+    arenaState = "generating";
+    document.getElementById("judgeBtn").disabled = true;
 
-        const m1 = document.getElementById("model1").value;
-        const m2 = document.getElementById("model2").value;
+    // Скрываем кнопку скачивания
+    const downloadBtn = document.getElementById("downloadBtn");
+    downloadBtn.style.display = "none";
+    downloadBtn.disabled = true;
 
-        const resp = await fetch("/api/llm-arena/compare", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({models: [m1, m2]})
-        });
+    document.getElementById("code1").innerText = "Generating...";
+    document.getElementById("code2").innerText = "Generating...";
+    document.getElementById("winner").innerHTML = "";
 
-        const data = await resp.json();
+    const m1 = document.getElementById("model1").value;
+    const m2 = document.getElementById("model2").value;
 
-        // Сохраняем ID битвы из ответа
-        currentBattleId = data.arena_result_id;
+    const resp = await fetch("/api/llm-arena/compare", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({models: [m1, m2]})
+    });
 
-        const r = data.results || [];
-        document.getElementById("code1").innerText = r[0]?.content || "error";
-        document.getElementById("code2").innerText = r[1]?.content || "error";
+    const data = await resp.json();
+    currentBattleId = data.arena_result_id;
 
-        arenaState = "generated";
-        document.getElementById("judgeBtn").disabled = false;
-    }
+    const r = data.results || [];
+    document.getElementById("code1").innerText = r[0]?.content || "error";
+    document.getElementById("code2").innerText = r[1]?.content || "error";
+
+    arenaState = "generated";
+    document.getElementById("judgeBtn").disabled = false;
+}
+
+    <!--let currentBattleId = null;-->
 
     // 2️⃣ JUDGE
     async function judgeArena() {
@@ -152,7 +161,7 @@ button:disabled {
         const data = await resp.json();
 
         const winner = data.winners?.[0] || "DRAW";
-        const judgeReason = data.reason || data.judge_result?.reason || "Judge explanation unavailable";
+        const judgeReason = data.reason || data.judge_result?.reason || "Комментарий отсутствует";
 
         document.getElementById("winner").innerHTML = `
             <div class="winner">
@@ -165,6 +174,21 @@ button:disabled {
 
         arenaState = "judged";
         document.getElementById("judgeBtn").disabled = true;
+        // Показываем и активируем кнопку скачивания
+        const downloadBtn = document.getElementById("downloadBtn");
+        downloadBtn.style.display = "inline-block";
+        downloadBtn.disabled = false;
+    }
+
+    function downloadResult() {
+        if (!currentBattleId) return;
+        // Прямая загрузка файла через эндпоинт
+        const link = document.createElement("a");
+        link.href = `/api/llm-arena/download-result/${currentBattleId}`;
+        link.download = `battle_${currentBattleId}_result.md`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
 </script>
