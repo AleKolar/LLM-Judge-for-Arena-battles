@@ -1,26 +1,33 @@
 # src/utils/normalize.py
 def to_md(evidence):
-    return "\n\n".join(
-        f"### {e['model']}\n\n```python\n{e['content']}\n```"
-        for e in evidence
-    )
+    blocks = []
+
+    for item in evidence:
+        blocks.append(
+            f"## Model: {item.get('model', 'unknown')}\n\n"
+            f"Status: {item.get('status', 'unknown')}\n\n"
+            f"```python\n{item.get('content', '')}\n```\n"
+        )
+
+    return "\n".join(blocks)
 
 def normalize_evidence(evidence):
-    if not evidence:
-        return []
-
     normalized = []
 
     for item in evidence:
+
         if isinstance(item, dict):
             normalized.append({
                 "model": item.get("model", "unknown"),
-                "content": item.get("content", "")
+                "status": item.get("status", "success"),
+                "content": item.get("content", str(item)),
             })
+
         else:
             normalized.append({
                 "model": "unknown",
-                "content": str(item)
+                "status": "success",
+                "content": str(item),
             })
 
     return normalized

@@ -68,12 +68,12 @@ async def declare_winner(
 
     decision = await judge_winner(results, request.app.state.http_session)
 
-    last_battle.winner = decision["winners"][0] if decision["winners"] else "draw"
-    last_battle.message = decision["message"]
-    await db.commit()
-
-    last_battle.winner = decision["winners"][0] if decision["winners"] else "draw"
-    last_battle.message = decision["message"]
+    if decision["winners"]:
+        last_battle.winner = decision["winners"][0]
+        last_battle.message = decision["message"]
+    else:
+        last_battle.winner = None
+        last_battle.message = decision["message"]
     await db.commit()
 
     return WinnerResponse(**decision)
