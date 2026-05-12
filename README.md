@@ -11,7 +11,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-green)
-![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
+[![codecov](https://codecov.io/gh/AleKolar/LLM-Judge-for-Arena-battles/graph/badge.svg)](https://codecov.io/gh/AleKolar/LLM-Judge-for-Arena-battles)
 
 ---
 
