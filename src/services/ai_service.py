@@ -320,8 +320,6 @@ async def judge_winner(
     #     model1 if winner != model1 else model2
     # ]
 
-    winner_display = prettify_model_name(winner)
-
     losers = [
         m for m in [model1, model2]
         if m != winner
