@@ -7,7 +7,7 @@
 Результат битвы сохраняется в базе данных, доступен для просмотра в веб-интерфейсе и может быть скачан в виде Markdown-файла.
 
 [![codecov](https://codecov.io/gh/AleKolar/Leap-Year-Detective-The-Battle-of-the-Models/graph/badge.svg?token=BSPH4PID5K)](https://codecov.io/gh/AleKolar/Leap-Year-Detective-The-Battle-of-the-Models)
-![CI](https://img.shields.io/badge/CI-passing-brightgreen)
+![CI](https://github.com/AleKolar/LLM-Judge-for-Arena-battles/actions/workflows/ci.yml/badge.svg)
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-green)
@@ -90,14 +90,6 @@
 Промпт для судьи (`judge_prompt.md`) также настраивается и может быть дополнен критериями оценки.
 
 ---
-
-## 🚀 Быстрый старт
-
-### 1. Клонирование
-
-```bash
-git clone https://github.com/your-username/LLM-Judge-for-Arena-battles.git
-cd LLM-Judge-for-Arena-battles
 
 ```
 # 🎬 Project Demo
