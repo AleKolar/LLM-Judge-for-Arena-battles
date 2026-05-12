@@ -73,6 +73,8 @@ button:disabled {
     <button id="judgeBtn" onclick="judgeArena()" disabled>
         👑 Решение судьи
     </button>
+
+
 </div>
 
 <div class="card arena">
@@ -87,7 +89,7 @@ button:disabled {
 <script>
 
     let arenaState = "idle";
-    let lastArenaResults = [];
+    let currentBattleId = null;   // сохраняем ID битвы после генерации
 
     const MODELS = {
         "gpt-4o-mini": "GPT-4o-mini",
@@ -97,11 +99,9 @@ button:disabled {
         "llama-3.3-70b": "Llama 70B"
     };
 
-    // загрузка моделей
     window.onload = () => {
         const m1 = document.getElementById("model1");
         const m2 = document.getElementById("model2");
-
         for (let m in MODELS) {
             m1.innerHTML += `<option value="${m}">${MODELS[m]}</option>`;
             m2.innerHTML += `<option value="${m}">${MODELS[m]}</option>`;
@@ -110,10 +110,8 @@ button:disabled {
 
     // 1️⃣ GENERATE
     async function runArena() {
-
         arenaState = "generating";
         document.getElementById("judgeBtn").disabled = true;
-
         document.getElementById("code1").innerText = "Generating...";
         document.getElementById("code2").innerText = "Generating...";
         document.getElementById("winner").innerHTML = "";
@@ -129,54 +127,41 @@ button:disabled {
 
         const data = await resp.json();
 
+        // Сохраняем ID битвы из ответа
+        currentBattleId = data.arena_result_id;
+
         const r = data.results || [];
-
-        document.getElementById("code1").innerText =
-            r[0]?.content || "error";
-
-        document.getElementById("code2").innerText =
-            r[1]?.content || "error";
-
-        lastArenaResults = r;
+        document.getElementById("code1").innerText = r[0]?.content || "error";
+        document.getElementById("code2").innerText = r[1]?.content || "error";
 
         arenaState = "generated";
-
-        // включаем судью
         document.getElementById("judgeBtn").disabled = false;
     }
 
     // 2️⃣ JUDGE
     async function judgeArena() {
-
-        if (arenaState !== "generated") {
+        if (arenaState !== "generated" || !currentBattleId) {
             alert("Сначала сгенерируйте код");
             return;
         }
 
-        const resp = await fetch("/api/llm-arena/winner", {
+        const resp = await fetch(`/api/llm-arena/winner/${currentBattleId}`, {
             method: "POST"
         });
 
         const data = await resp.json();
 
         const winner = data.winners?.[0] || "DRAW";
-
-        const judgeReason =
-            data.reason ||
-            data.judge_result?.reason ||
-            "Judge explanation unavailable";
+        const judgeReason = data.reason || data.judge_result?.reason || "Judge explanation unavailable";
 
         document.getElementById("winner").innerHTML = `
-    <div class="winner">
-        ⚖️ JUDGE RESULT<br><br>
-
-        🏆 Winner:
-        <b>${winner}</b><br><br>
-
-        📌 <b>Judge reasoning:</b><br>
-        ${judgeReason}
-    </div>
-`;
+            <div class="winner">
+                ⚖️ Результат битвы<br><br>
+                🏆 Победитель: <b>${winner}</b><br><br>
+                📌 Комментарии к результату:<br>
+                ${judgeReason}
+            </div>
+        `;
 
         arenaState = "judged";
         document.getElementById("judgeBtn").disabled = true;

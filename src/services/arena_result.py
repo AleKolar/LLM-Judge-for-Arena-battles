@@ -7,16 +7,12 @@ from src.models.db_models import ArenaResult
 
 
 async def get_last_result_service(db: AsyncSession):
-    stmt = (
-        select(ArenaResult)
-        .order_by(ArenaResult.created_at.desc())
-        .limit(1)
-    )
-
+    stmt = select(ArenaResult).order_by(ArenaResult.created_at.desc()).limit(1)
     result = await db.execute(stmt)
-    last_battle = result.scalars().first()
+    return result.scalars().first()
 
-    if not last_battle:
-        return None
 
-    return last_battle
+async def get_battle_by_id(db: AsyncSession, battle_id: int) -> ArenaResult | None:
+    stmt = select(ArenaResult).where(ArenaResult.id == battle_id)
+    result = await db.execute(stmt)
+    return result.scalars().first()

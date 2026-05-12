@@ -298,9 +298,9 @@ cd Leap-Year-Detective
 ### 2. Настройка окружения
 Создайте виртуальное окружение (рекомендуется Python 3.10+):
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-.venv\Scripts\activate      # Windows
+python -m venv my_venv
+source my_venv/bin/activate   # Linux/macOS
+my_venv\Scripts\activate      # Windows
 ```
 
 Установите зависимости:
