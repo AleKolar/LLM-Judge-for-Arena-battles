@@ -114,7 +114,7 @@
 
 ---
 
-## 📄 Downloaded Result File Example
+## 📄 Example of a fragment of the uploaded result file
 
 ![frame_of_the_uploaded_file](screenshots/frame_of_the_uploaded_file.png)
 
