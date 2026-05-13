@@ -12,6 +12,7 @@ from src.services.ai_service import (
     run_arena_comparison,
 )
 from src.services.arena_result import get_last_result_service, get_battle_by_id
+from src.services.download_service import generate_battle_markdown
 from src.utils.normalize import normalize_evidence, to_md
 from src.utils.prettify_model_name import prettify_model_name
 
@@ -97,69 +98,15 @@ async def get_history(db: AsyncSession = Depends(get_async_db)):
 
 
 @router.get("/download-result/{battle_id}")
-async def download_result(
-    battle_id: int,
-    db: AsyncSession = Depends(get_async_db)
-):
+async def download_result(battle_id: int, db: AsyncSession = Depends(get_async_db)):
     battle = await get_battle_by_id(db, battle_id)
     if not battle:
         raise HTTPException(404, f"Битва с id={battle_id} не найдена")
-
-    evidence = normalize_evidence(battle.evidence)
-    evidence_md = to_md(evidence)
-
-    # Победитель
-    winner_text = "Ничья"
-    if battle.winner:
-        winner_text = prettify_model_name(battle.winner)
-        # Добавляем метку только при одинаковых коротких именах
-        if battle.model1 == battle.model2:
-            label = "Модель A" if battle.winner_position == "MODEL_A" else "Модель B"
-            winner_text += f" ({label})"
-
-    verdict = battle.message or "Результат не определён"
-    reason = battle.judge_reason or "Комментарий отсутствует"
-
-    # Имена для таблицы статусов
-    model1_display = battle.model1
-    model2_display = battle.model2
-    if battle.model1 == battle.model2:
-        model1_display += " (Модель A)"
-        model2_display += " (Модель B)"
-
-    # Статусы определяем по winner_position
-    if battle.winner and battle.winner_position:
-        if battle.winner_position == "MODEL_A":
-            status1 = "✅"
-            status2 = "❌"
-        else:  # "MODEL_B"
-            status1 = "❌"
-            status2 = "✅"
-    else:
-        status1 = status2 = "🤝"
-
-    markdown = (
-        f"# 🧠 LLM Arena — Результат битвы\n\n"
-        f"## 🏆 Победитель\n{winner_text}\n\n"
-        f"## ⚖️ Вердикт Судьи\n{verdict}\n\n"
-        f"## 📋 Комментарии к результату\n{reason}\n\n"
-        f"---\n\n"
-        f"## 📊 Статус моделей\n\n"
-        f"| Модель | Статус |\n"
-        f"|--------|--------|\n"
-        f"| {model1_display} | {status1} |\n"
-        f"| {model2_display} | {status2} |\n\n"
-        f"---\n\n"
-        f"## 📝 Код моделей\n\n"
-        f"{evidence_md}"
-    )
-
+    markdown = generate_battle_markdown(battle)
     return Response(
         content=markdown,
         media_type="text/markdown",
-        headers={
-            "Content-Disposition": f"attachment; filename=battle_{battle_id}_result.md"
-        }
+        headers={"Content-Disposition": f"attachment; filename=battle_{battle_id}_result.md"}
     )
 
 
@@ -168,52 +115,7 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
     last_battle = await get_last_result_service(db)
     if not last_battle:
         raise HTTPException(404, "История битв пуста")
-
-    evidence = normalize_evidence(last_battle.evidence)
-    evidence_md = to_md(evidence)
-
-    winner_text = "Ничья"
-    if last_battle.winner:
-        winner_text = prettify_model_name(last_battle.winner)
-        if last_battle.model1 == last_battle.model2:
-            label = "Модель A" if last_battle.winner_position == "MODEL_A" else "Модель B"
-            winner_text += f" ({label})"
-
-    verdict = last_battle.message or "Результат не определён"
-    reason = last_battle.judge_reason or "Комментарий отсутствует"
-
-    model1_display = last_battle.model1
-    model2_display = last_battle.model2
-    if last_battle.model1 == last_battle.model2:
-        model1_display += " (Модель A)"
-        model2_display += " (Модель B)"
-
-    if last_battle.winner and last_battle.winner_position:
-        if last_battle.winner_position == "MODEL_A":
-            status1 = "✅"
-            status2 = "❌"
-        else:
-            status1 = "❌"
-            status2 = "✅"
-    else:
-        status1 = status2 = "🤝"
-
-    markdown = (
-        f"# 🧠 LLM Arena — Результат битвы\n\n"
-        f"## 🏆 Победитель\n{winner_text}\n\n"
-        f"## ⚖️ Вердикт Судьи\n{verdict}\n\n"
-        f"## 📋 Комментарии к результату\n{reason}\n\n"
-        f"---\n\n"
-        f"## 📊 Статус моделей\n\n"
-        f"| Модель | Статус |\n"
-        f"|--------|--------|\n"
-        f"| {model1_display} | {status1} |\n"
-        f"| {model2_display} | {status2} |\n\n"
-        f"---\n\n"
-        f"## 📝 Код моделей\n\n"
-        f"{evidence_md}"
-    )
-
+    markdown = generate_battle_markdown(last_battle)
     return Response(
         content=markdown,
         media_type="text/markdown",
