@@ -101,7 +101,7 @@
 <table align="center" border="2" bordercolor="#007bff" cellpadding="15" bgcolor="#f0f8ff">
   <tr><td>
     <h3>🎥 Live demo</h3>
-    <p><i>Вот так это работает</i></p>
+    <p><i>Вот так это работает: Фрагмент битвы моделей</i></p>
     <img src="screenshots/walkthrough.gif" alt="Demo" width="720" style="border: 1px solid #ddd; border-radius: 4px;">
   </td></tr>
 </table>
