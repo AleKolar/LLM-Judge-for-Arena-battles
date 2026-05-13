@@ -79,6 +79,9 @@ async def declare_winner(
         battle.judge_reason = decision.get("reason", "")
     await db.commit()
 
+    decision["model_a_name"] = battle.model1
+    decision["model_b_name"] = battle.model2
+
     return WinnerResponse(**decision)
 
 
@@ -102,20 +105,34 @@ async def download_result(
     evidence = normalize_evidence(battle.evidence)
     evidence_md = to_md(evidence)
 
-    winner_text = "Ничья" if not battle.winner else prettify_model_name(battle.winner)
+    # Победитель
+    winner_text = "Ничья"
+    if battle.winner:
+        winner_text = prettify_model_name(battle.winner)
+        # Добавляем метку только если модели одинаковые
+        if battle.model1 == battle.model2:
+            # Определяем, это Модель A или B: evidence[0] – model1, evidence[1] – model2
+            if battle.evidence[0]["model"] == battle.winner:
+                winner_text += " (Модель A)"
+            else:
+                winner_text += " (Модель B)"
+
     verdict = battle.message or "Результат не определён"
     reason = battle.judge_reason or "Комментарий отсутствует"
 
-    model1_full = AVAILABLE_MODELS.get(battle.model1, battle.model1)
-    model2_full = AVAILABLE_MODELS.get(battle.model2, battle.model2)
+    # Имена для таблицы статусов
+    model1_display = battle.model1
+    model2_display = battle.model2
+    if battle.model1 == battle.model2:
+        model1_display += " (Модель A)"
+        model2_display += " (Модель B)"
 
-    # ✅ Исправление: всегда определяем status1 и status2
+    # Статусы
     if battle.winner:
-        status1 = "✅" if battle.winner == model1_full else "❌"
-        status2 = "✅" if battle.winner == model2_full else "❌"
+        status1 = "✅" if battle.winner == battle.evidence[0]["model"] else "❌"
+        status2 = "✅" if battle.winner == battle.evidence[1]["model"] else "❌"
     else:
-        status1 = "🤝"
-        status2 = "🤝"
+        status1 = status2 = "🤝"
 
     markdown = (
         f"# 🧠 LLM Arena — Результат битвы\n\n"
@@ -126,8 +143,8 @@ async def download_result(
         f"## 📊 Статус моделей\n\n"
         f"| Модель | Статус |\n"
         f"|--------|--------|\n"
-        f"| {battle.model1} | {status1} |\n"
-        f"| {battle.model2} | {status2} |\n\n"
+        f"| {model1_display} | {status1} |\n"
+        f"| {model2_display} | {status2} |\n\n"
         f"---\n\n"
         f"## 📝 Код моделей\n\n"
         f"{evidence_md}"
@@ -151,20 +168,29 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
     evidence = normalize_evidence(last_battle.evidence)
     evidence_md = to_md(evidence)
 
-    winner_text = "Ничья" if not last_battle.winner else prettify_model_name(last_battle.winner)
+    winner_text = "Ничья"
+    if last_battle.winner:
+        winner_text = prettify_model_name(last_battle.winner)
+        if last_battle.model1 == last_battle.model2:
+            if last_battle.evidence[0]["model"] == last_battle.winner:
+                winner_text += " (Модель A)"
+            else:
+                winner_text += " (Модель B)"
+
     verdict = last_battle.message or "Результат не определён"
     reason = last_battle.judge_reason or "Комментарий отсутствует"
 
-    model1_full = AVAILABLE_MODELS.get(last_battle.model1, last_battle.model1)
-    model2_full = AVAILABLE_MODELS.get(last_battle.model2, last_battle.model2)
+    model1_display = last_battle.model1
+    model2_display = last_battle.model2
+    if last_battle.model1 == last_battle.model2:
+        model1_display += " (Модель A)"
+        model2_display += " (Модель B)"
 
-    if last_battle.winner:  # есть победитель
-        status1 = "✅" if last_battle.winner == model1_full else "❌"
-        status2 = "✅" if last_battle.winner == model2_full else "❌"
-
-    else:  # ничья
-        status1 = "🤝"
-        status2 = "🤝"
+    if last_battle.winner:
+        status1 = "✅" if last_battle.winner == last_battle.evidence[0]["model"] else "❌"
+        status2 = "✅" if last_battle.winner == last_battle.evidence[1]["model"] else "❌"
+    else:
+        status1 = status2 = "🤝"
 
     markdown = (
         f"# 🧠 LLM Arena — Результат битвы\n\n"
@@ -175,8 +201,8 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
         f"## 📊 Статус моделей\n\n"
         f"| Модель | Статус |\n"
         f"|--------|--------|\n"
-        f"| {last_battle.model1} | {status1} |\n"
-        f"| {last_battle.model2} | {status2} |\n\n"
+        f"| {model1_display} | {status1} |\n"
+        f"| {model2_display} | {status2} |\n\n"
         f"---\n\n"
         f"## 📝 Код моделей\n\n"
         f"{evidence_md}"

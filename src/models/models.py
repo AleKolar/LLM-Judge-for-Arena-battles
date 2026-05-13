@@ -22,6 +22,8 @@ class WinnerResponse(BaseModel):
     judge_result: dict | None = None
     judge_error: dict | None = None
     evidence: list[ModelEvidence] = []
+    model_a_name: str | None = None   # короткое имя первой модели (ВАЖНО, при одинаковых моделях)
+    model_b_name: str | None = None   # короткое имя второй модели
 
 
 class BattleHistoryResponse(BaseModel):

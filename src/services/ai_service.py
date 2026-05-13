@@ -182,6 +182,7 @@ async def judge_winner(
             "reason": "Обе модели не смогли выполнить задание.",
             "evidence": failed_results,
         }
+
     if len(successful_results) == 1:
         winner = successful_results[0]
         loser_model = failed_results[0]["model"] if failed_results else "неизвестная модель"
@@ -200,13 +201,22 @@ async def judge_winner(
     response1 = res1["content"]
     response2 = res2["content"]
 
+    # Если модели одинаковые – даём им уникальные имена для Judge
+    if model1 == model2:
+        judge_model1 = f"{model1} (Первая модель)"
+        judge_model2 = f"{model2} (Вторая модель)"
+    else:
+        judge_model1 = model1
+        judge_model2 = model2
+
     judge_result = await ask_judge(
         session=session,
-        model1=model1,
+        model1=judge_model1,
         response1=response1,
-        model2=model2,
+        model2=judge_model2,
         response2=response2,
     )
+
     if "error" in judge_result:
         return {
             "winners": [],
@@ -220,13 +230,26 @@ async def judge_winner(
     winner_map = {"MODEL_A": model1, "MODEL_B": model2}
     winner = winner_map[winner_alias]
     losers = [m for m in [model1, model2] if m != winner]
-    reason = judge_result.get("reason", "").replace("MODEL_A", model1).replace("MODEL_B", model2)
+
+    reason = judge_result.get("reason", "")
+    reason = reason.replace("MODEL_A", judge_model1).replace("MODEL_B", judge_model2)
     judge_result["reason"] = reason
+
+    # Формируем читаемое сообщение
+    winner_display = prettify_model_name(winner)
+    if model1 == model2:
+        # Добавляем метку, чтобы различать одинаковые модели
+        if winner_alias == "MODEL_A":
+            winner_display += " (Первая модель)"
+        else:
+            winner_display += " (Вторая модель)"
+
+    winner_display = prettify_model_name(winner)
 
     return {
         "winners": [winner],
         "losers": losers,
-        "message": f"🏆 Победитель: {prettify_model_name(winner)}",
+        "message": f"🏆 Победитель: {winner_display}",
         "judge_result": judge_result,
         "summary": judge_result.get("summary", "Судья выбрал победителя."),
         "reason": reason,

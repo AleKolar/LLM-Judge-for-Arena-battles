@@ -1,60 +1,60 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LLM Arena 🧠⚖️</title>
-<link rel="icon" href="static/favicon.ico">
-<style>
-body {
-    font-family: Arial;
-    max-width: 1200px;
-    margin: auto;
-    background: #f5f7fb;
-    padding: 20px;
-}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Arena 🧠⚖️</title>
+    <link rel="icon" href="static/favicon.ico">
+    <style>
+        body {
+            font-family: Arial;
+            max-width: 1200px;
+            margin: auto;
+            background: #f5f7fb;
+            padding: 20px;
+        }
 
-.card {
-    background: white;
-    padding: 20px;
-    margin: 15px 0;
-    border-radius: 10px;
-}
+        .card {
+            background: white;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+        }
 
-.arena {
-    display: flex;
-    gap: 10px;
-}
+        .arena {
+            display: flex;
+            gap: 10px;
+        }
 
-.box {
-    flex: 1;
-    background: #111;
-    color: #0f0;
-    padding: 10px;
-    min-height: 200px;
-    white-space: pre-wrap;
-    border-radius: 8px;
-}
+        .box {
+            flex: 1;
+            background: #111;
+            color: #0f0;
+            padding: 10px;
+            min-height: 200px;
+            white-space: pre-wrap;
+            border-radius: 8px;
+        }
 
-button {
-    padding: 10px 15px;
-    margin: 5px;
-    cursor: pointer;
-}
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+        }
 
-button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
 
-.winner {
-    background: #222;
-    color: white;
-    padding: 15px;
-    border-radius: 8px;
-    margin-top: 10px;
-}
-</style>
+        .winner {
+            background: #222;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+    </style>
 </head>
 
 <body>
@@ -90,9 +90,8 @@ button:disabled {
 </div>
 
 <script>
-
     let arenaState = "idle";
-    let currentBattleId = null;   // сохраняем ID битвы после генерации
+    let currentBattleId = null;
 
     const MODELS = {
         "gpt-4o-mini": "GPT-4o-mini",
@@ -100,6 +99,15 @@ button:disabled {
         "llama-3.1-8b": "Llama 3.1",
         "qwen3-coder-480b": "Qwen 480B",
         "llama-3.3-70b": "Llama 70B"
+    };
+
+    // Обратный маппинг: короткое имя -> полный идентификатор (из AVAILABLE_MODELS)
+    const MODEL_IDS = {
+        "gpt-4o-mini": "openai/gpt-4o-mini",
+        "deepseek-chat": "deepseek/deepseek-chat",
+        "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
+        "qwen3-coder-480b": "qwen/qwen3-coder-480b-a35b-instruct:free",
+        "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free"
     };
 
     window.onload = () => {
@@ -111,43 +119,37 @@ button:disabled {
         }
     };
 
-    // 1️⃣ GENERATE
     async function runArena() {
-    arenaState = "generating";
-    document.getElementById("judgeBtn").disabled = true;
+        arenaState = "generating";
+        document.getElementById("judgeBtn").disabled = true;
+        const downloadBtn = document.getElementById("downloadBtn");
+        downloadBtn.style.display = "none";
+        downloadBtn.disabled = true;
 
-    // Скрываем кнопку скачивания
-    const downloadBtn = document.getElementById("downloadBtn");
-    downloadBtn.style.display = "none";
-    downloadBtn.disabled = true;
+        document.getElementById("code1").innerText = "Generating...";
+        document.getElementById("code2").innerText = "Generating...";
+        document.getElementById("winner").innerHTML = "";
 
-    document.getElementById("code1").innerText = "Generating...";
-    document.getElementById("code2").innerText = "Generating...";
-    document.getElementById("winner").innerHTML = "";
+        const m1 = document.getElementById("model1").value;
+        const m2 = document.getElementById("model2").value;
 
-    const m1 = document.getElementById("model1").value;
-    const m2 = document.getElementById("model2").value;
+        const resp = await fetch("/api/llm-arena/compare", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({models: [m1, m2]})
+        });
 
-    const resp = await fetch("/api/llm-arena/compare", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({models: [m1, m2]})
-    });
+        const data = await resp.json();
+        currentBattleId = data.arena_result_id;
 
-    const data = await resp.json();
-    currentBattleId = data.arena_result_id;
+        const r = data.results || [];
+        document.getElementById("code1").innerText = r[0]?.content || "error";
+        document.getElementById("code2").innerText = r[1]?.content || "error";
 
-    const r = data.results || [];
-    document.getElementById("code1").innerText = r[0]?.content || "error";
-    document.getElementById("code2").innerText = r[1]?.content || "error";
+        arenaState = "generated";
+        document.getElementById("judgeBtn").disabled = false;
+    }
 
-    arenaState = "generated";
-    document.getElementById("judgeBtn").disabled = false;
-}
-
-    <!--let currentBattleId = null;-->
-
-    // 2️⃣ JUDGE
     async function judgeArena() {
         if (arenaState !== "generated" || !currentBattleId) {
             alert("Сначала сгенерируйте код");
@@ -157,24 +159,50 @@ button:disabled {
         const resp = await fetch(`/api/llm-arena/winner/${currentBattleId}`, {
             method: "POST"
         });
-
         const data = await resp.json();
 
-        const winner = data.winners?.[0] || "DRAW";
+        const winnerFull = data.winners?.[0] || null;
+        const modelAShort = data.model_a_name || "Модель A";
+        const modelBShort = data.model_b_name || "Модель B";
+        const judgeWinner = data.judge_result?.winner; // "MODEL_A"/"MODEL_B"
+
+        let winnerDisplay = "Ничья";
+
+        if (winnerFull) {
+            const fullA = MODEL_IDS[modelAShort];
+            const fullB = MODEL_IDS[modelBShort];
+            const isModelA = (winnerFull === fullA);
+            const isModelB = (winnerFull === fullB);
+
+            let shortName = winnerFull;
+            if (isModelA) shortName = modelAShort;
+            else if (isModelB) shortName = modelBShort;
+
+            let label = "";
+            if (judgeWinner) {
+                // Единая метка "Модель A" или "Модель B"
+                label = judgeWinner === "MODEL_A" ? "(Модель A)" : "(Модель B)";
+            } else {
+                // Судья не вызывался (одна модель упала) – всё равно указываем, кто
+                label = isModelA ? "(Модель A)" : "(Модель B)";
+            }
+
+            winnerDisplay = `${shortName} <b>${label}</b>`;
+        }
+
         const judgeReason = data.reason || data.judge_result?.reason || "Комментарий отсутствует";
 
         document.getElementById("winner").innerHTML = `
-            <div class="winner">
-                ⚖️ Результат битвы<br><br>
-                🏆 Победитель: <b>${winner}</b><br><br>
-                📌 Комментарии к результату:<br>
-                ${judgeReason}
-            </div>
-        `;
+        <div class="winner">
+            ⚖️ Результат битвы<br><br>
+            🏆 Победитель: ${winnerDisplay}<br><br>
+            📌 Комментарии к результату:<br>
+            ${judgeReason}
+        </div>
+    `;
 
         arenaState = "judged";
         document.getElementById("judgeBtn").disabled = true;
-        // Показываем и активируем кнопку скачивания
         const downloadBtn = document.getElementById("downloadBtn");
         downloadBtn.style.display = "inline-block";
         downloadBtn.disabled = false;
@@ -182,7 +210,6 @@ button:disabled {
 
     function downloadResult() {
         if (!currentBattleId) return;
-        // Прямая загрузка файла через эндпоинт
         const link = document.createElement("a");
         link.href = `/api/llm-arena/download-result/${currentBattleId}`;
         link.download = `battle_${currentBattleId}_result.md`;
@@ -190,8 +217,6 @@ button:disabled {
         link.click();
         document.body.removeChild(link);
     }
-
 </script>
-
 </body>
 </html>

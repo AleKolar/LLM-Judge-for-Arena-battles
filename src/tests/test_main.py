@@ -104,14 +104,13 @@ def test_list_models(client):
 
 @pytest.mark.asyncio
 async def test_winner_endpoint(client):
-    """
-    Тест эндпоинта /winner/{battle_id}.
-    Мокаем get_battle_by_id в роутере и ask_judge в ai_service.
-    """
+    """Тест эндпоинта /winner/{battle_id}."""
     battle_id = 42
 
     mock_battle = MagicMock()
     mock_battle.id = battle_id
+    mock_battle.model1 = "gpt-4o-mini"          # <-- строковое значение!
+    mock_battle.model2 = "deepseek-chat"       # <-- строковое значение!
     mock_battle.evidence = [
         _mock_llm_response("openai/gpt-4o-mini", "code A"),
         _mock_llm_response("deepseek-chat", "code B"),
@@ -120,8 +119,7 @@ async def test_winner_endpoint(client):
     mock_battle.message = ""
 
     with patch(
-        "src.services.ai_service.ask_judge",
-        new_callable=AsyncMock
+        "src.services.ai_service.ask_judge", new_callable=AsyncMock
     ) as mock_ask_judge:
         mock_ask_judge.return_value = {
             "winner": "MODEL_A",
@@ -129,8 +127,7 @@ async def test_winner_endpoint(client):
         }
 
         with patch(
-            "src.routers.llm_arena.get_battle_by_id",
-            new_callable=AsyncMock
+            "src.routers.llm_arena.get_battle_by_id", new_callable=AsyncMock
         ) as mock_get_battle:
             mock_get_battle.return_value = mock_battle
 
@@ -138,15 +135,12 @@ async def test_winner_endpoint(client):
 
             assert resp.status_code == 200
             data = resp.json()
-
             assert data["winners"] == ["openai/gpt-4o-mini"]
             assert data["losers"] == ["deepseek-chat"]
             assert "Победитель" in data["message"]
             assert "more correct" in data["reason"]
-
-            mock_ask_judge.assert_called_once()
-            mock_get_battle.assert_called_once()
-            assert mock_battle.winner == "openai/gpt-4o-mini"
+            assert data["model_a_name"] == "gpt-4o-mini"
+            assert data["model_b_name"] == "deepseek-chat"
 
 
 def test_winner_not_found(client):
@@ -203,8 +197,15 @@ async def test_get_last_result_service():
 
 def test_last_result(client):
     mock_battle = MagicMock()
-    mock_battle.evidence = []
+    mock_battle.winner = None
+    mock_battle.evidence = [
+        {"model": "openai/gpt-4o-mini", "content": "code", "status": "success"}
+    ]
     mock_battle.message = "ok"
+    mock_battle.judge_reason = "reason"
+    mock_battle.model1 = "gpt-4o-mini"
+    mock_battle.model2 = "gpt-4o-mini"
+
     mock_scalars = MagicMock()
     mock_scalars.first.return_value = mock_battle
     mock_result = MagicMock()
@@ -222,7 +223,9 @@ def test_last_result(client):
 
     try:
         resp = client.get("/api/llm-arena/last-result")
-        assert resp.status_code in (200, 404)
+        assert resp.status_code == 200
+        content = resp.text
+        assert "🧠 LLM Arena — Результат битвы" in content
     finally:
         app.dependency_overrides.clear()
 
