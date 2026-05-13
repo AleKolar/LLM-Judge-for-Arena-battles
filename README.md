@@ -108,11 +108,16 @@
 
 [![▶ Демонстрация работы](https://img.shields.io/badge/▶_Демонстрация-Скачать_видео-2ea44f?style=for-the-badge&logo=github)](screenshots/walkthrough.mp4)
 
+## 🧠 LLM Battle Results
+
+![battle_of_identical_models](screenshots/battle_of_identical_models.png)
+
+
 ---
 
 ## 📄 Downloaded Result File Example
 
-![download](screenshots/download.jpg)
+![frame_of_the_uploaded_file](screenshots/frame_of_the_uploaded_file.png)
 
 ---
 
@@ -191,7 +196,7 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
-Откройте http://127.0.0.1:8000.
+Откройте в браузере [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ### 🧪 Тестирование
 
