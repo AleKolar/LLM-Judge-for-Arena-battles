@@ -212,39 +212,49 @@ pytest --cov=src --cov-report=term-missing
 ```
 text
 LLM-Judge-for-Arena-battles/
-├── .env
+├── .env                         # API-ключ OpenRouter (не включён в репозиторий)
 ├── .gitignore
-├── pyproject.toml
+├── pyproject.toml               # Конфигурация Ruff, Pytest, Coverage
 ├── requirements.txt
-├── main.py                     # Точка входа, lifespan, статика
-├── alembic.ini
-├── alembic/
+├── README.md
+├── main.py                      # Точка входа, lifespan, статика, шаблоны
+├── alembic.ini                  # Конфигурация Alembic
+├── alembic/                     # Миграции базы данных
+│   ├── env.py
+│   └── versions/
 ├── src/
 │   ├── routers/
-│   │   └── llm_arena.py       # Эндпоинты арены и скачивания
+│   │   └── llm_arena.py        # Эндпоинты арены и скачивания результатов
 │   ├── services/
-│   │   ├── ai_service.py      # OpenRouter, сравнение, судья
-│   │   └── arena_result.py    # Сервис работы с БД (последняя битва, поиск по ID)
+│   │   ├── ai_service.py       # OpenRouter, сравнение моделей, судья
+│   │   ├── arena_result.py     # Сервис доступа к БД (последняя битва, поиск по ID)
+│   │   └── download_service.py # Генерация Markdown-отчёта для скачивания
 │   ├── models/
-│   │   ├── models.py          # Pydantic-схемы (WinnerResponse и т.д.)
-│   │   └── db_models.py       # SQLAlchemy ORM (ArenaResult)
+│   │   ├── models.py           # Pydantic-схемы (WinnerResponse, ModelEvidence и др.)
+│   │   └── db_models.py        # SQLAlchemy ORM модель ArenaResult
 │   ├── schemas/
-│   │   └── schemas.py         # API-контракты (CompareRequest, ArenaResultResponse)
+│   │   └── schemas.py          # API-контракты (CompareRequest, ArenaResultResponse)
 │   ├── database/
-│   │   └── database.py        # Асинхронный движок, сессии
+│   │   └── database.py         # Асинхронный движок, сессии, поддержка Alembic
 │   ├── prompts/
-│   │   ├── system_prompt.md   # Задание для моделей
-│   │   └── judge_prompt.md    # Инструкция для судьи
+│   │   ├── system_prompt.md    # Задание для моделей (по умолчанию — написать функцию и тесты)
+│   │   └── judge_prompt.md     # Инструкция для LLM-судьи
 │   ├── utils/
-│   │   ├── normalize.py       # Очистка и форматирование evidence
-│   │   └── prettify_model_name.py
+│   │   ├── normalize.py        # Очистка и форматирование evidence
+│   │   └── prettify_model_name.py # Укорачивание полного имени модели
 │   ├── templates/
-│   │   └── index.html         # Веб-интерфейс арены
-│   ├── static/                # favicon.ico
+│   │   └── index.html          # Веб-интерфейс арены (выбор моделей, результаты)
+│   ├── static/                 # Статические файлы (favicon.ico)
 │   └── tests/
-│       └── test_main.py       # Все тесты
+│       └── test_main.py        # Все тесты проекта (unit, интеграционные, моки)
+├── screenshots/                # Скриншоты и демонстрационные материалы
+│   ├── walkthrough.gif
+│   ├── walkthrough.mp4
+│   └── download.jpg
 └── .github/
-    └── workflows/             # CI (тесты + coverage)
+    └── workflows/
+        ├── ci.yml              # Основной CI: тесты при push и pull request
+        └── coverage.yml        # Загрузка отчёта о покрытии в Codecov
 ```
 ---
 
