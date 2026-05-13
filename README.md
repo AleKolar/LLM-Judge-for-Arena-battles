@@ -108,10 +108,9 @@
 
 [![▶ Демонстрация работы](https://img.shields.io/badge/▶_Демонстрация-Скачать_видео-2ea44f?style=for-the-badge&logo=github)](screenshots/walkthrough.mp4)
 
-## 🧠 LLM Battle Results
+## 🧠 LLM Battle Results: Что будет, если выбрать одну и ту же модель ?
 
 ![battle_of_identical_models](screenshots/battle_of_identical_models.png)
-
 
 ---
 
