@@ -185,6 +185,7 @@ OPENROUTER_API_KEY=sk-or-v1-ваш-ключ
 ### 🔹 Миграции базы данных (при необходимости)
 
 ```bash
+alembic revision --autogenerate -m "One more migration"
 alembic upgrade head
 ```
 ---
