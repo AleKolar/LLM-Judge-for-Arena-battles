@@ -7,12 +7,10 @@
 
 Результат битвы сохраняется в базе данных, доступен для просмотра в веб-интерфейсе и может быть скачан для любой завершённой битвы.
 
-[![codecov](https://codecov.io/gh/AleKolar/LLM-Judge-for-Arena-battles/graph/badge.svg)](https://codecov.io/gh/AleKolar/LLM-Judge-for-Arena-battles)
-![CI](https://github.com/AleKolar/LLM-Judge-for-Arena-battles/actions/workflows/ci.yml/badge.svg)
-
+[![CI](https://github.com/AleKolar/LLM-Judge-for-Arena-battles/actions/workflows/ci.yml/badge.svg)](...)
+[![codecov](https://codecov.io/.../badge.svg)](...)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-green)
-![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
 
 ---
 
