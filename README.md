@@ -200,12 +200,12 @@ uvicorn main:app --reload
 
 ### 🧪 Тестирование
 
-- **Для запуска всех тестов:
+- Для запуска всех тестов:
 
 ```bash
 pytest src/tests -v
 ```
-- **С отчётом о покрытии:
+- С отчётом о покрытии:
 
 ```bash
 pytest --cov=src --cov-report=term-missing
