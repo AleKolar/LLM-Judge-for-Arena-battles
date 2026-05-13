@@ -72,11 +72,14 @@ async def declare_winner(
     if decision.get("winners"):
         battle.winner = decision["winners"][0]
         battle.message = decision["message"]
-        battle.judge_reason = decision.get("reason", "")   # <-- СОХРАНЯЕМ
+        battle.judge_reason = decision.get("reason", "")
+        battle.winner_position = decision.get("winner_position")  # <-- сохраняем
     else:
         battle.winner = None
         battle.message = decision["message"]
         battle.judge_reason = decision.get("reason", "")
+        battle.winner_position = None
+
     await db.commit()
 
     decision["model_a_name"] = battle.model1
@@ -109,13 +112,10 @@ async def download_result(
     winner_text = "Ничья"
     if battle.winner:
         winner_text = prettify_model_name(battle.winner)
-        # Добавляем метку только если модели одинаковые
+        # Добавляем метку только при одинаковых коротких именах
         if battle.model1 == battle.model2:
-            # Определяем, это Модель A или B: evidence[0] – model1, evidence[1] – model2
-            if battle.evidence[0]["model"] == battle.winner:
-                winner_text += " (Модель A)"
-            else:
-                winner_text += " (Модель B)"
+            label = "Модель A" if battle.winner_position == "MODEL_A" else "Модель B"
+            winner_text += f" ({label})"
 
     verdict = battle.message or "Результат не определён"
     reason = battle.judge_reason or "Комментарий отсутствует"
@@ -127,10 +127,14 @@ async def download_result(
         model1_display += " (Модель A)"
         model2_display += " (Модель B)"
 
-    # Статусы
-    if battle.winner:
-        status1 = "✅" if battle.winner == battle.evidence[0]["model"] else "❌"
-        status2 = "✅" if battle.winner == battle.evidence[1]["model"] else "❌"
+    # Статусы определяем по winner_position
+    if battle.winner and battle.winner_position:
+        if battle.winner_position == "MODEL_A":
+            status1 = "✅"
+            status2 = "❌"
+        else:  # "MODEL_B"
+            status1 = "❌"
+            status2 = "✅"
     else:
         status1 = status2 = "🤝"
 
@@ -172,10 +176,8 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
     if last_battle.winner:
         winner_text = prettify_model_name(last_battle.winner)
         if last_battle.model1 == last_battle.model2:
-            if last_battle.evidence[0]["model"] == last_battle.winner:
-                winner_text += " (Модель A)"
-            else:
-                winner_text += " (Модель B)"
+            label = "Модель A" if last_battle.winner_position == "MODEL_A" else "Модель B"
+            winner_text += f" ({label})"
 
     verdict = last_battle.message or "Результат не определён"
     reason = last_battle.judge_reason or "Комментарий отсутствует"
@@ -186,9 +188,13 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
         model1_display += " (Модель A)"
         model2_display += " (Модель B)"
 
-    if last_battle.winner:
-        status1 = "✅" if last_battle.winner == last_battle.evidence[0]["model"] else "❌"
-        status2 = "✅" if last_battle.winner == last_battle.evidence[1]["model"] else "❌"
+    if last_battle.winner and last_battle.winner_position:
+        if last_battle.winner_position == "MODEL_A":
+            status1 = "✅"
+            status2 = "❌"
+        else:
+            status1 = "❌"
+            status2 = "✅"
     else:
         status1 = status2 = "🤝"
 
@@ -211,7 +217,5 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
     return Response(
         content=markdown,
         media_type="text/markdown",
-        headers={
-            "Content-Disposition": "attachment; filename=last_result.md"
-        }
+        headers={"Content-Disposition": "attachment; filename=last_result.md"}
     )

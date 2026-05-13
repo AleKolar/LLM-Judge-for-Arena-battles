@@ -173,6 +173,7 @@ async def judge_winner(
     successful_results = [r for r in results if r.get("status") == "success"]
     failed_results = [r for r in results if r.get("status") == "error"]
 
+    # Обе упали
     if len(successful_results) == 0:
         return {
             "winners": [],
@@ -183,19 +184,25 @@ async def judge_winner(
             "evidence": failed_results,
         }
 
+    # Только одна успешна
     if len(successful_results) == 1:
         winner = successful_results[0]
         loser_model = failed_results[0]["model"] if failed_results else "неизвестная модель"
+        # Определяем позицию победителя: если его model равен первому элементу в results,
+        # значит это MODEL_A, иначе MODEL_B
+        winner_pos = "MODEL_A" if winner["model"] == results[0]["model"] else "MODEL_B"
         return {
             "winners": [winner["model"]],
             "losers": [r["model"] for r in failed_results],
-            "message": f"🏆 Победитель: {winner['model']} (вторая модель завершилась ошибкой)",
+            "message": f"🏆 Победитель: {winner['model']} (Другая модель завершилась ошибкой)",
             "judge_result": None,
             "reason": f"Модель {loser_model} завершилась с ошибкой, поэтому побеждает {winner['model']} по умолчанию.",
             "evidence": results,
+            "winner_position": winner_pos,
         }
 
-    res1, res2 = successful_results
+    # Две успешные модели
+    res1, res2 = successful_results[0], successful_results[1]
     model1 = res1["model"]
     model2 = res2["model"]
     response1 = res1["content"]
@@ -203,8 +210,8 @@ async def judge_winner(
 
     # Если модели одинаковые – даём им уникальные имена для Judge
     if model1 == model2:
-        judge_model1 = f"{model1} (Первая модель)"
-        judge_model2 = f"{model2} (Вторая модель)"
+        judge_model1 = f"{model1} (MODEL_A)"
+        judge_model2 = f"{model2} (MODEL_B)"
     else:
         judge_model1 = model1
         judge_model2 = model2
@@ -227,6 +234,7 @@ async def judge_winner(
         }
 
     winner_alias = judge_result["winner"]
+    winner_position = winner_alias  # "MODEL_A" или "MODEL_B"
     winner_map = {"MODEL_A": model1, "MODEL_B": model2}
     winner = winner_map[winner_alias]
     losers = [m for m in [model1, model2] if m != winner]
@@ -234,15 +242,6 @@ async def judge_winner(
     reason = judge_result.get("reason", "")
     reason = reason.replace("MODEL_A", judge_model1).replace("MODEL_B", judge_model2)
     judge_result["reason"] = reason
-
-    # Формируем читаемое сообщение
-    winner_display = prettify_model_name(winner)
-    if model1 == model2:
-        # Добавляем метку, чтобы различать одинаковые модели
-        if winner_alias == "MODEL_A":
-            winner_display += " (Первая модель)"
-        else:
-            winner_display += " (Вторая модель)"
 
     winner_display = prettify_model_name(winner)
 
@@ -254,6 +253,7 @@ async def judge_winner(
         "summary": judge_result.get("summary", "Судья выбрал победителя."),
         "reason": reason,
         "evidence": results,
+        "winner_position": winner_position,
     }
 
 
