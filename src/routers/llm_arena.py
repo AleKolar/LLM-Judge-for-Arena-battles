@@ -50,7 +50,7 @@ async def run_comparison(
         result = await run_arena_comparison(models, session, payload.prompt)
     except Exception as e:
         logger.exception("Ошибка при генерации: %s", e)
-        raise HTTPException(500, "Внутренняя ошибка сервера")
+        raise HTTPException(500, "Внутренняя ошибка сервера") from e
 
     battle = ArenaResult(
         model1=models[0], model2=models[1],
@@ -96,7 +96,7 @@ async def declare_winner(
         )
     except Exception as e:
         logger.exception("Ошибка при судействе битвы %d: %s", battle_id, e)
-        raise HTTPException(500, "Внутренняя ошибка сервера")
+        raise HTTPException(500, "Внутренняя ошибка сервера") from e
 
     battle.judge_model_name = payload.judge_model
 
