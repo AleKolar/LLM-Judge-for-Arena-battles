@@ -128,6 +128,10 @@
 
     <br><br>
 
+    <label for="judgeModel">Судья:</label>
+    <select id="judgeModel"></select>
+    <br><br>
+
     <button onclick="runArena()">⚡ Сгенерировать код</button>
     <button id="judgeBtn" onclick="judgeArena()" disabled>👑 Решение судьи</button>
     <button id="downloadBtn" onclick="downloadResult()" disabled style="display:none;">📥 Скачать результат</button>
@@ -160,7 +164,12 @@
         "llama-3.3-70b": "Llama 70B"
     };
 
-    // Обратный маппинг: короткое имя -> полный идентификатор (из AVAILABLE_MODELS)
+    const JUDGE_MODELS = {
+        "gpt-4o-mini": "GPT-4o-mini",
+        "deepseek-chat": "DeepSeek",
+        "llama-3.1-8b": "Llama 3.1"
+    };
+
     const MODEL_IDS = {
         "gpt-4o-mini": "openai/gpt-4o-mini",
         "deepseek-chat": "deepseek/deepseek-chat",
@@ -172,11 +181,24 @@
     window.onload = () => {
         const m1 = document.getElementById("model1");
         const m2 = document.getElementById("model2");
+        const judgeSel = document.getElementById("judgeModel");
+
         for (let m in MODELS) {
             m1.innerHTML += `<option value="${m}">${MODELS[m]}</option>`;
             m2.innerHTML += `<option value="${m}">${MODELS[m]}</option>`;
         }
+
+        for (let j in JUDGE_MODELS) {
+            const selected = (j === "deepseek-chat") ? "selected" : "";
+            judgeSel.innerHTML += `<option value="${j}" ${selected}>${JUDGE_MODELS[j]}</option>`;
+        }
     };
+
+    function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+    }
 
     async function runArena() {
         arenaState = "generating";
@@ -215,47 +237,65 @@
             return;
         }
 
+        const judgeModel = document.getElementById("judgeModel").value;
+
         const resp = await fetch(`/api/llm-arena/winner/${currentBattleId}`, {
-            method: "POST"
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({judge_model: judgeModel})
         });
         const data = await resp.json();
 
         const winnerFull = data.winners?.[0] || null;
         const modelAShort = data.model_a_name || "Модель A";
         const modelBShort = data.model_b_name || "Модель B";
-        const judgeWinner = data.judge_result?.winner; // "MODEL_A"/"MODEL_B"
+        const judgeModelUsed = data.judge_model_name || judgeModel;
 
         let winnerDisplay = "Ничья";
-
         if (winnerFull) {
-            const fullA = MODEL_IDS[modelAShort];
-            const fullB = MODEL_IDS[modelBShort];
-            const isModelA = (winnerFull === fullA);
-            const isModelB = (winnerFull === fullB);
-
-            let shortName = winnerFull;
-            if (isModelA) shortName = modelAShort;
-            else if (isModelB) shortName = modelBShort;
-
-            let label = "";
-            if (judgeWinner) {
-                label = judgeWinner === "MODEL_A" ? "(Модель A)" : "(Модель B)";
+            let shortName, label;
+            // Основной путь: используем winner_position из ответа сервера
+            if (data.winner_position === "MODEL_A") {
+                shortName = modelAShort;
+                label = "(Модель A)";
+            } else if (data.winner_position === "MODEL_B") {
+                shortName = modelBShort;
+                label = "(Модель B)";
             } else {
-                label = isModelA ? "(Модель A)" : "(Модель B)";
+                // Fallback: определяем по полному идентификатору победителя
+                const fullA = MODEL_IDS[modelAShort];
+                const fullB = MODEL_IDS[modelBShort];
+                if (winnerFull === fullA) {
+                    shortName = modelAShort;
+                    label = "(Модель A)";
+                } else if (winnerFull === fullB) {
+                    shortName = modelBShort;
+                    label = "(Модель B)";
+                } else {
+                    // Крайний случай: показываем как есть
+                    shortName = winnerFull;
+                    label = "";
+                }
             }
-
             winnerDisplay = `${shortName} <b>${label}</b>`;
         }
 
-        const judgeReason = data.reason || data.judge_result?.reason || "Комментарий отсутствует";
+        // Приоритет: judge_result.reason > data.reason > дефолт
+        const judgeReason = data.judge_result?.reason || data.reason || "Комментарий отсутствует";
+
+        // Для отладки выводим ошибку в консоль, если есть
+        if (data.judge_error) {
+            console.warn("Ошибка судьи:", data.judge_error);
+        }
 
         document.getElementById("winner").innerHTML = `
-            <div class="winner">
-                ⚖️ Результат битвы<br><br>
-                🏆 Победитель: ${winnerDisplay}<br><br>
-                📌 Комментарии к результату:<br>
-                ${judgeReason}
-            </div>
+        <div class="winner">
+            ⚖️ Результат битвы<br><br>
+            🏆 Победитель: ${winnerDisplay}<br>
+            🧑‍⚖️ Судья: ${escapeHtml(JUDGE_MODELS[judgeModelUsed] || judgeModelUsed)}<br><br>
+            📌 Комментарии к результату:<br>
+            ${escapeHtml(judgeReason)}
+        </div>
         `;
 
         arenaState = "judged";
@@ -275,5 +315,3 @@
         document.body.removeChild(link);
     }
 </script>
-</body>
-</html>

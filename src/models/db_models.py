@@ -15,3 +15,4 @@ class ArenaResult(Base):
     evidence = Column(JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     winner_position = Column(String, nullable=True)   # "MODEL_A" или "MODEL_B"
+    judge_model_name = Column(String, nullable=True)

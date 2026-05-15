@@ -109,14 +109,15 @@ async def test_winner_endpoint(client):
 
     mock_battle = MagicMock()
     mock_battle.id = battle_id
-    mock_battle.model1 = "gpt-4o-mini"          # <-- строковое значение!
-    mock_battle.model2 = "deepseek-chat"       # <-- строковое значение!
+    mock_battle.model1 = "gpt-4o-mini"
+    mock_battle.model2 = "deepseek-chat"
     mock_battle.evidence = [
         _mock_llm_response("openai/gpt-4o-mini", "code A"),
         _mock_llm_response("deepseek-chat", "code B"),
     ]
     mock_battle.winner = None
     mock_battle.message = ""
+    mock_battle.judge_model_name = None   # новое поле
 
     with patch(
         "src.services.ai_service.ask_judge", new_callable=AsyncMock
@@ -131,7 +132,11 @@ async def test_winner_endpoint(client):
         ) as mock_get_battle:
             mock_get_battle.return_value = mock_battle
 
-            resp = client.post(f"/api/llm-arena/winner/{battle_id}")
+            # Отправляем тело с выбором судьи
+            resp = client.post(
+                f"/api/llm-arena/winner/{battle_id}",
+                json={"judge_model": "deepseek-chat"}
+            )
 
             assert resp.status_code == 200
             data = resp.json()
@@ -141,6 +146,7 @@ async def test_winner_endpoint(client):
             assert "more correct" in data["reason"]
             assert data["model_a_name"] == "gpt-4o-mini"
             assert data["model_b_name"] == "deepseek-chat"
+            assert data["judge_model_name"] == "deepseek-chat"
 
 
 def test_winner_not_found(client):
@@ -151,7 +157,10 @@ def test_winner_not_found(client):
     ) as mock_get_battle:
         mock_get_battle.return_value = None
 
-        resp = client.post("/api/llm-arena/winner/999")
+        resp = client.post(
+            "/api/llm-arena/winner/999",
+            json={"judge_model": "deepseek-chat"}
+        )
         assert resp.status_code == 404
 
 
@@ -545,6 +554,160 @@ async def test_fetch_from_model_exception():
         result = await fetch_from_model(session, "model", "prompt")
         assert result["status"] == "error"
         assert "Исключение" in result["content"]
+
+# =========================
+# JUDGE_WINNER: ALL BRANCHES (NEW)
+# =========================
+
+@pytest.mark.asyncio
+async def test_judge_winner_both_failed():
+    """Обе модели вернули ошибку."""
+    results = [
+        {"model": "A", "content": "err", "status": "error"},
+        {"model": "B", "content": "err", "status": "error"},
+    ]
+    session = AsyncMock()
+    res = await judge_winner(results, session)
+    assert res["winners"] == []
+    assert res["losers"] == ["A", "B"]
+    assert res["message"] == "❌ Все модели завершились ошибкой."
+    assert res["judge_result"]["winner"] is None
+    assert "Обе модели не смогли выполнить задание" in res["judge_result"]["reason"]
+    assert res["winner_position"] is None
+    assert res["judge_model"] == "deepseek-chat"
+    assert res["reason"] is not None
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_one_success_model_a():
+    """Одна успешна, и она первая в списке (MODEL_A)."""
+    results = [
+        {"model": "gpt-4o-mini", "content": "ok", "status": "success"},
+        {"model": "llama-3", "content": "error", "status": "error"},
+    ]
+    session = AsyncMock()
+    res = await judge_winner(results, session, judge_model="gpt-4o-mini")
+    assert res["winners"] == ["gpt-4o-mini"]
+    assert res["losers"] == ["llama-3"]
+    assert "Победитель" in res["message"]
+    assert "завершилась с ошибкой" in res["reason"]
+    assert res["winner_position"] == "MODEL_A"
+    assert res["judge_result"]["winner"] == "gpt-4o-mini"
+    assert res["judge_model"] == "gpt-4o-mini"
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_one_success_model_b():
+    """Одна успешна, но она вторая в списке (MODEL_B)."""
+    results = [
+        {"model": "gpt-4o-mini", "content": "error", "status": "error"},
+        {"model": "llama-3", "content": "ok", "status": "success"},
+    ]
+    session = AsyncMock()
+    res = await judge_winner(results, session, judge_model="deepseek-chat")
+    assert res["winners"] == ["llama-3"]
+    assert res["losers"] == ["gpt-4o-mini"]
+    assert res["winner_position"] == "MODEL_B"
+    assert res["judge_result"]["winner"] == "llama-3"
+    assert res["judge_model"] == "deepseek-chat"
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_draw():
+    """Судья вернул DRAW."""
+    results = [
+        {"model": "m1", "content": "ok", "status": "success"},
+        {"model": "m2", "content": "ok", "status": "success"},
+    ]
+    session = AsyncMock()
+    with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {"winner": "DRAW", "reason": "Оба решения идентичны"}
+        res = await judge_winner(results, session, judge_model="llama-3.1-8b")
+        assert res["winners"] == []
+        assert res["losers"] == []
+        assert "Ничья" in res["message"]
+        assert res["judge_result"]["winner"] == "DRAW"
+        assert res["judge_result"]["reason"] == "Оба решения идентичны"
+        assert res["winner_position"] is None
+        assert res["judge_model"] == "llama-3.1-8b"
+        mock_ask.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_judge_error():
+    """Судья возвращает ошибку (невалидный JSON/winner)."""
+    results = [
+        {"model": "m1", "content": "ok", "status": "success"},
+        {"model": "m2", "content": "ok", "status": "success"},
+    ]
+    session = AsyncMock()
+    with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {
+            "error": "Judge вернул неверный winner: MODEL_C",
+            "raw_response": '{"winner": "MODEL_C", "reason": "..."}'
+        }
+        res = await judge_winner(results, session, judge_model="gpt-4o-mini")
+        assert res["winners"] == []
+        assert res["losers"] == []
+        assert "Judge не смог определить победителя" in res["message"]
+        assert res["judge_error"] is not None
+        assert res["judge_result"]["winner"] is None
+        assert "Судья не дал корректного вердикта" in res["judge_result"]["reason"]
+        assert res["winner_position"] is None
+        assert res["judge_model"] == "gpt-4o-mini"
+        mock_ask.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_same_models():
+    """Две одинаковые модели, судья выбирает MODEL_A."""
+    results = [
+        {"model": "gpt-4o-mini", "content": "code1", "status": "success"},
+        {"model": "gpt-4o-mini", "content": "code2", "status": "success"},
+    ]
+    session = AsyncMock()
+    with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {"winner": "MODEL_A", "reason": "Первая реализация лучше"}
+        res = await judge_winner(results, session)
+        assert res["winners"] == ["gpt-4o-mini"]
+        assert res["losers"] == []               # та же модель
+        assert res["winner_position"] == "MODEL_A"
+        assert res["reason"] == "Первая реализация лучше"
+        assert res["judge_result"]["reason"] == "Первая реализация лучше"
+        mock_ask.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_empty_reason_handling():
+    """Судья вернул пустой reason – должна быть ошибка."""
+    results = [
+        {"model": "m1", "content": "ok", "status": "success"},
+        {"model": "m2", "content": "ok", "status": "success"},
+    ]
+    session = AsyncMock()
+    with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {"error": "Judge вернул пустой reason", "raw_response": '{"winner": "MODEL_A", "reason": ""}'}
+        res = await judge_winner(results, session)
+        assert res["winners"] == []
+        assert "judge_error" in res
+        assert "пустой reason" in res["judge_result"]["reason"]
+        mock_ask.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_judge_winner_winner_position_consistency():
+    """Проверка, что winner_position совпадает с выбором судьи."""
+    results = [
+        {"model": "a", "content": "ok", "status": "success"},
+        {"model": "b", "content": "ok", "status": "success"},
+    ]
+    session = AsyncMock()
+    with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {"winner": "MODEL_B", "reason": "B is better"}
+        res = await judge_winner(results, session)
+        assert res["winners"] == ["b"]
+        assert res["winner_position"] == "MODEL_B"
+        mock_ask.assert_called_once()
 
 
 # pytest src/tests/test_main.py -v
