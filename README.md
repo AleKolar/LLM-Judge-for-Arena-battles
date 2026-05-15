@@ -137,14 +137,14 @@ MODEL_B ({model_b_name})
 <table align="center" border="2" bordercolor="#007bff" cellpadding="15" bgcolor="#f0f8ff">
   <tr><td>
     <h3>🎥 Live demo</h3>
-    <p><i>Вот так это работает: Фрагмент битвы моделей</i></p>
+    <p><i>Вот так это работает: Фрагмент битвы моделей, судейство и результат</i></p>
     <img src="screenshots/walkthrough.gif" alt="Demo" width="720" style="border: 1px solid #ddd; border-radius: 4px;">
   </td></tr>
 </table>
 
 [![▶ Демонстрация работы](https://img.shields.io/badge/▶_Демонстрация-Скачать_видео-2ea44f?style=for-the-badge&logo=github)](screenshots/walkthrough.mp4)
 
-## 🧠 LLM Battle Results: 
+## 🧠 LLM Battle Results: Скриншот экрана
 
 ![battle_of_identical_models](screenshots/battle_of_identical_models.png)
 
