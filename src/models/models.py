@@ -38,3 +38,8 @@ class BattleHistoryResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class FullBattleRequest(BaseModel):
+    models: list[str]
+    judge_model: str
+    prompt: str | None = None
+

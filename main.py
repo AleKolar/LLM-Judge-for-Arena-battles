@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     # Создаём aiohttp-сессию
     app.state.http_session = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=30),
-        headers={"User-Agent": "LeapYearDetective/3.0"}
+        headers={"User-Agent": "LLM Arena/3.0"}
     )
     # ── Блок проверки AI-сервиса ──
     if not API_KEY:
@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 
     await app.state.http_session.close()
 
-app = FastAPI(title="Leap Year Detective 🕵️", version="3.0.0", lifespan=lifespan)
+app = FastAPI(title="LLM Arena 🧠⚖️", version="3.0.0", lifespan=lifespan)
 
 templates = Jinja2Templates(directory="src/templates")
 

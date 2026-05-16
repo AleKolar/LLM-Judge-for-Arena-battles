@@ -10,7 +10,8 @@ from main import app, lifespan
 from src.database.database import get_async_db
 from src.schemas.schemas import CompareRequest, WinnerRequest, ArenaResultResponse, ArenaCompareResponse
 from src.services.ai_service import judge_winner
-from src.services.arena_result import get_last_result_service
+from src.services.arena_result import get_last_result_service, get_battle_by_id
+from src.services.download_service import generate_battle_markdown
 from src.utils.normalize import normalize_evidence, to_md
 
 
@@ -23,7 +24,7 @@ def client():
     """
     TestClient + isolated dependency override for the database session.
     """
-    async def override_get_async_db():
+    def override_get_async_db():
         session = AsyncMock()
         session.execute = AsyncMock()
         session.commit = AsyncMock()
@@ -709,6 +710,126 @@ async def test_judge_winner_winner_position_consistency():
         assert res["winner_position"] == "MODEL_B"
         mock_ask.assert_called_once()
 
+# =========================
+# validate judge_model mapping
+# =========================
+
+@pytest.mark.asyncio
+async def test_battle_with_valid_judge_model(client):
+    """
+    Проверка, что выбранная модель судьи попадает в ответ и что
+    результат судейства возвращается корректно.
+    """
+    battle_id = 1
+
+    with patch(
+        "src.routers.llm_arena.get_battle_by_id", new_callable=AsyncMock
+    ) as mock_get_battle, patch(
+        "src.routers.llm_arena.judge_winner", new_callable=AsyncMock   # мокаем в роутере
+    ) as mock_judge:
+
+        # Мок боевой записи из базы
+        mock_battle = MagicMock()
+        mock_battle.id = battle_id
+        mock_battle.model1 = "gpt-4o-mini"
+        mock_battle.model2 = "deepseek-chat"
+        mock_battle.evidence = [
+            {"model": "openai/gpt-4o-mini", "content": "code A", "status": "success"},
+            {"model": "deepseek-chat", "content": "code B", "status": "success"},
+        ]
+        mock_get_battle.return_value = mock_battle
+
+        # Мок результата судьи
+        mock_judge.return_value = {
+            "winners": ["openai/gpt-4o-mini"],
+            "losers": ["deepseek-chat"],
+            "message": "OK",
+            "judge_result": {"winner": "MODEL_A", "reason": "better solution"},
+            "reason": "better solution",
+            "winner_position": "MODEL_A",
+            "judge_model": "llama-3.1-8b",
+        }
+
+        response = client.post(
+            f"/api/llm-arena/winner/{battle_id}",
+            json={"judge_model": "llama-3.1-8b"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Основные проверки
+        assert data["winners"] == ["openai/gpt-4o-mini"]
+        assert data["losers"] == ["deepseek-chat"]
+        assert data["judge_result"]["winner"] == "MODEL_A"
+        assert data["reason"] == "better solution"
+        assert data["winner_position"] == "MODEL_A"
+        assert data["judge_model_name"] == "llama-3.1-8b"
+
+# =========================
+# DOWNLOAD SERVICE
+# =========================
+
+def test_generate_battle_markdown_same_models():
+    """Обе модели одинаковые, победитель определён."""
+    battle = MagicMock()
+    battle.model1 = "gpt-4o-mini"
+    battle.model2 = "gpt-4o-mini"
+    battle.winner = "openai/gpt-4o-mini"
+    battle.winner_position = "MODEL_A"
+    battle.message = "Победа"
+    battle.judge_reason = "Лучше тесты"
+    battle.evidence = [
+        {"model": "gpt-4o-mini", "content": "code", "status": "success"}
+    ]
+
+    md = generate_battle_markdown(battle)
+    assert "Модель A" in md
+    assert "✅" in md
+    assert "❌" in md
+
+
+def test_generate_battle_markdown_draw():
+    """Ничья – нет победителя."""
+    battle = MagicMock()
+    battle.model1 = "m1"
+    battle.model2 = "m2"
+    battle.winner = None
+    battle.winner_position = None
+    battle.message = "Ничья!"
+    battle.judge_reason = "Обе одинаковы"
+    battle.evidence = [
+        {"model": "m1", "content": "c1", "status": "success"}
+    ]
+
+    md = generate_battle_markdown(battle)
+    assert "🤝" in md
+    assert "Ничья" in md
+
+# =========================
+# ARENA RESULT SERVICE
+# =========================
+
+@pytest.mark.asyncio
+async def test_get_battle_by_id_not_found():
+    """Если битва не найдена, возвращается None."""
+    db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.first.return_value = None
+    db.execute.return_value = mock_result
+    result = await get_battle_by_id(db, 999)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_last_result_service_empty():
+    """Если таблица пуста, возвращается None."""
+    db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.first.return_value = None
+    db.execute.return_value = mock_result
+    result = await get_last_result_service(db)
+    assert result is None
 
 # pytest src/tests/test_main.py -v
 # pytest --cov=src --cov-report=term-missing

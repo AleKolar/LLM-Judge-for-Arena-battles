@@ -31,3 +31,32 @@ def normalize_evidence(evidence):
             })
 
     return normalized
+
+
+def normalize_decision(decision: dict) -> dict:
+    """
+    Приводит ответ judge к единому формату WinnerResponse-safe.
+    """
+
+    if not isinstance(decision, dict):
+        return {
+            "winners": [],
+            "losers": [],
+            "message": "Invalid judge response",
+            "reason": "Judge returned non-dict response",
+            "judge_result": {"winner": None, "reason": "invalid"},
+            "judge_error": {"error": "invalid format"},
+            "winner_position": None,
+        }
+
+    return {
+        "winners": decision.get("winners", []),
+        "losers": decision.get("losers", []),
+        "message": decision.get("message", ""),
+        "summary": decision.get("summary"),
+        "reason": decision.get("reason", ""),
+        "judge_result": decision.get("judge_result", {}),
+        "judge_error": decision.get("judge_error"),
+        "winner_position": decision.get("winner_position"),
+    }
+
