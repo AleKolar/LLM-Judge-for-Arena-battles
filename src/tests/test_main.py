@@ -831,6 +831,45 @@ async def test_get_last_result_service_empty():
     result = await get_last_result_service(db)
     assert result is None
 
+# =========================
+# UTILS TESTS
+# =========================
+
+def test_normalize_decision():
+    """Функция normalize_decision: валидный, неполный и не-словарь."""
+    from src.utils.normalize import normalize_decision
+
+    # Полный корректный ответ
+    full = {
+        "winners": ["model-a"],
+        "losers": ["model-b"],
+        "message": "ok",
+        "reason": "good",
+        "judge_result": {"winner": "model-a"},
+        "winner_position": "MODEL_A",
+    }
+    res = normalize_decision(full)
+    assert res["winners"] == ["model-a"]
+    assert res["losers"] == ["model-b"]
+    assert res["reason"] == "good"
+    assert res["judge_result"] == {"winner": "model-a"}
+    assert res["winner_position"] == "MODEL_A"
+
+    # Частичный ответ (пустые списки/строки)
+    partial = {"winners": []}
+    res = normalize_decision(partial)
+    assert res["winners"] == []
+    assert res["losers"] == []
+    assert res["message"] == ""
+    assert res["reason"] == ""
+    assert res["winner_position"] is None
+
+    # Вход не словарь
+    res = normalize_decision("invalid")
+    assert res["winners"] == []
+    assert res["message"] == "Invalid judge response"
+    assert res["judge_error"] is not None
+
 # pytest src/tests/test_main.py -v
 # pytest --cov=src --cov-report=term-missing
 # pytest --cov=src --cov-report=xml
