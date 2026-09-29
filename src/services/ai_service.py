@@ -27,7 +27,6 @@ load_dotenv()
 API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 AVAILABLE_MODELS = {
-    "liquid/lfm-2.5": "liquid/lfm-2.5-embedding-350m:free",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "deepseek-chat": "deepseek/deepseek-chat",
     "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
@@ -37,7 +36,6 @@ AVAILABLE_MODELS = {
 }
 
 JUDGE_MODEL = {
-    "liquid/lfm-2.5": "liquid/lfm-2.5-embedding-350m:free",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "deepseek-chat": "deepseek/deepseek-chat",
     "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
@@ -65,26 +63,111 @@ async def fetch_from_model(session, model_id, prompt, temperature=0.0, max_token
 
     logger.info("Запрос к модели %s (max_tokens=%d)", model_id, max_tokens)
     url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    
+    # ✅ ИСПРАВЛЕННЫЕ ЗАГОЛОВКИ ДЛЯ OpenRouter SECURITY POLICY
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/AleKolar/LLM-Judge-for-Arena-battles",
+        "X-Title": "LLM Judge Arena",
+        "User-Agent": "LLMArenaBot/1.0 (Python; FastAPI)"
+    }
+    
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    
     try:
-        async with session.post(url, headers=headers, json=payload) as resp:
+        async with session.post(
+            url, 
+            headers=headers, 
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=60)
+        ) as resp:
+            response_text = await resp.text()
+            
             if resp.status == 200:
-                data = await resp.json()
-                content = data["choices"][0]["message"]["content"]
-                logger.info("Успешный ответ от %s (длина %d символов)", model_id, len(content))
-                return {"model": model_id, "content": content, "status": "success"}
-            error_text = await resp.text()
-            logger.error("Ошибка %d от модели %s: %s", resp.status, model_id, error_text[:200])
-            return {"model": model_id, "content": f"Ошибка {resp.status}: {error_text[:500]}", "status": "error"}
+                try:
+                    data = json.loads(response_text)
+                    content = data["choices"][0]["message"]["content"]
+                    logger.info("✅ Успешный ответ от %s (длина %d символов)", model_id, len(content))
+                    return {"model": model_id, "content": content, "status": "success"}
+                except (json.JSONDecodeError, KeyError, IndexError) as e:
+                    logger.error("❌ Ошибка парсинга JSON (200 OK): %s | Response: %s", str(e), response_text[:300])
+                    return {"model": model_id, "content": f"Ошибка парсинга: {str(e)}", "status": "error"}
+            
+            # ═══════════════════════════════════════════════════════════
+            # ДИАГНОСТИКА ОШИБОК OpenRouter
+            # ═══════════════════════════════════════════════════════════
+            
+            if resp.status == 403:
+                logger.error("🚫 403 SECURITY POLICY VIOLATION")
+                logger.error("   URL: %s", url)
+                logger.error("   Model: %s", model_id)
+                logger.error("   API Key (first 20 chars): %s...", API_KEY[:20] if API_KEY else "NOT SET")
+                logger.error("   Response Headers: %s", dict(resp.headers))
+                logger.error("   Response Body: %s", response_text)
+                return {
+                    "model": model_id,
+                    "content": f"403 Access Denied: {response_text[:300]}",
+                    "status": "error",
+                    "error_type": "security_policy"
+                }
+            
+            if resp.status == 401:
+                logger.error("🔐 401 UNAUTHORIZED - Invalid or expired API Key")
+                logger.error("   Check your OPENROUTER_API_KEY in .env")
+                logger.error("   Response: %s", response_text[:300])
+                return {
+                    "model": model_id,
+                    "content": "401 Unauthorized: Invalid API Key. Check .env file.",
+                    "status": "error",
+                    "error_type": "auth_failed"
+                }
+            
+            if resp.status == 429:
+                logger.error("⏱️ 429 RATE LIMITED - Too many requests")
+                logger.error("   Response: %s", response_text[:300])
+                return {
+                    "model": model_id,
+                    "content": "429 Rate Limited: Try again in a moment",
+                    "status": "error",
+                    "error_type": "rate_limit"
+                }
+            
+            if resp.status == 500:
+                logger.error("💥 500 SERVER ERROR from OpenRouter")
+                logger.error("   Response: %s", response_text[:300])
+                return {
+                    "model": model_id,
+                    "content": "500 OpenRouter Server Error: Try again later",
+                    "status": "error",
+                    "error_type": "server_error"
+                }
+            
+            # Остальные ошибки
+            logger.error("❌ HTTP %d от модели %s: %s", resp.status, model_id, response_text[:300])
+            return {
+                "model": model_id,
+                "content": f"HTTP {resp.status}: {response_text[:200]}",
+                "status": "error",
+                "error_type": "http_error"
+            }
+            
+    except asyncio.TimeoutError:
+        logger.error("⏱️ TIMEOUT - Request exceeded 60 seconds for model %s", model_id)
+        return {"model": model_id, "content": "Timeout: Request took too long", "status": "error", "error_type": "timeout"}
+    
+    except aiohttp.ClientConnectorError as e:
+        logger.error("🌐 CONNECTION ERROR: %s", str(e))
+        return {"model": model_id, "content": f"Connection Error: {str(e)}", "status": "error", "error_type": "connection"}
+    
     except Exception as e:
-        logger.exception("Исключение при запросе к модели %s", model_id)
-        return {"model": model_id, "content": f"Исключение: {str(e)}", "status": "error"}
+        logger.exception("❌ EXCEPTION in fetch_from_model: %s", str(e))
+        return {"model": model_id, "content": f"Exception: {str(e)}", "status": "error", "error_type": "exception"}
 
 
 async def compare_models(models, session, custom_prompt=None):
