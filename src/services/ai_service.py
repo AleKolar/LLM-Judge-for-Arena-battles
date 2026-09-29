@@ -27,6 +27,7 @@ load_dotenv()
 API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 AVAILABLE_MODELS = {
+    "liquid/lfm-2.5": "liquid/lfm-2.5-embedding-350m:free",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "deepseek-chat": "deepseek/deepseek-chat",
     "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
@@ -36,6 +37,7 @@ AVAILABLE_MODELS = {
 }
 
 JUDGE_MODEL = {
+    "liquid/lfm-2.5": "liquid/lfm-2.5-embedding-350m:free",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "deepseek-chat": "deepseek/deepseek-chat",
     "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
