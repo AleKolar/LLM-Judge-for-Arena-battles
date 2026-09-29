@@ -27,21 +27,18 @@ load_dotenv()
 API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 AVAILABLE_MODELS = {
-    "gpt-4o-mini": "openai/gpt-4o-mini",
-    "deepseek-chat": "deepseek/deepseek-chat",
-    "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
-    "qwen3-coder-480b": "qwen/qwen3-coder-480b-a35b-instruct:free",
+    "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct:free",
     "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen3-coder-480b": "qwen/qwen3-coder-480b-a35b-instruct:free",
     "llama-3.2-3b": "meta-llama/llama-3.2-3b-instruct:free",
 }
 
 JUDGE_MODEL = {
-    "gpt-4o-mini": "openai/gpt-4o-mini",
-    "deepseek-chat": "deepseek/deepseek-chat",
-    "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
+    "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct:free",
+    "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
 }
 
-DEFAULT_MODELS = ["gpt-4o-mini", "deepseek-chat"]
+DEFAULT_MODELS = ["llama-3.1-8b", "llama-3.3-70b"]
 
 
 def load_prompt(filename: str) -> str:
@@ -64,13 +61,12 @@ async def fetch_from_model(session, model_id, prompt, temperature=0.0, max_token
     logger.info("Запрос к модели %s (max_tokens=%d)", model_id, max_tokens)
     url = "https://openrouter.ai/api/v1/chat/completions"
     
-    # ✅ ИСПРАВЛЕННЫЕ ЗАГОЛОВКИ ДЛЯ OpenRouter SECURITY POLICY
+    # ✅ ИСПРАВЛЕННЫЕ ЗАГОЛОВКИ ДЛЯ OpenRouter
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://github.com/AleKolar/LLM-Judge-for-Arena-battles",
-        "X-Title": "LLM Judge Arena",
-        "User-Agent": "LLMArenaBot/1.0 (Python; FastAPI)"
+        "User-Agent": "LLMArenaBot/1.0"
     }
     
     payload = {
@@ -87,87 +83,57 @@ async def fetch_from_model(session, model_id, prompt, temperature=0.0, max_token
             json=payload,
             timeout=aiohttp.ClientTimeout(total=60)
         ) as resp:
-            response_text = await resp.text()
-            
             if resp.status == 200:
-                try:
-                    data = json.loads(response_text)
-                    content = data["choices"][0]["message"]["content"]
-                    logger.info("✅ Успешный ответ от %s (длина %d символов)", model_id, len(content))
-                    return {"model": model_id, "content": content, "status": "success"}
-                except (json.JSONDecodeError, KeyError, IndexError) as e:
-                    logger.error("❌ Ошибка парсинга JSON (200 OK): %s | Response: %s", str(e), response_text[:300])
-                    return {"model": model_id, "content": f"Ошибка парсинга: {str(e)}", "status": "error"}
+                data = await resp.json()
+                content = data["choices"][0]["message"]["content"]
+                logger.info("✅ Успешный ответ от %s (длина %d символов)", model_id, len(content))
+                return {"model": model_id, "content": content, "status": "success"}
+            
+            error_text = await resp.text()
             
             # ═══════════════════════════════════════════════════════════
             # ДИАГНОСТИКА ОШИБОК OpenRouter
             # ═══════════════════════════════════════════════════════════
             
             if resp.status == 403:
-                logger.error("🚫 403 SECURITY POLICY VIOLATION")
-                logger.error("   URL: %s", url)
-                logger.error("   Model: %s", model_id)
-                logger.error("   API Key (first 20 chars): %s...", API_KEY[:20] if API_KEY else "NOT SET")
-                logger.error("   Response Headers: %s", dict(resp.headers))
-                logger.error("   Response Body: %s", response_text)
+                logger.error("🚫 403 SECURITY POLICY VIOLATION от модели %s", model_id)
+                logger.error("   Response: %s", error_text[:500])
                 return {
                     "model": model_id,
-                    "content": f"403 Access Denied: {response_text[:300]}",
+                    "content": f"Ошибка 403: {error_text[:200]}",
                     "status": "error",
                     "error_type": "security_policy"
                 }
             
             if resp.status == 401:
-                logger.error("🔐 401 UNAUTHORIZED - Invalid or expired API Key")
-                logger.error("   Check your OPENROUTER_API_KEY in .env")
-                logger.error("   Response: %s", response_text[:300])
+                logger.error("🔐 401 UNAUTHORIZED - Invalid API Key")
                 return {
                     "model": model_id,
-                    "content": "401 Unauthorized: Invalid API Key. Check .env file.",
+                    "content": "Ошибка 401: Invalid API Key",
                     "status": "error",
                     "error_type": "auth_failed"
                 }
             
             if resp.status == 429:
-                logger.error("⏱️ 429 RATE LIMITED - Too many requests")
-                logger.error("   Response: %s", response_text[:300])
+                logger.error("⏱️ 429 RATE LIMITED")
                 return {
                     "model": model_id,
-                    "content": "429 Rate Limited: Try again in a moment",
+                    "content": "Ошибка 429: Rate Limited",
                     "status": "error",
                     "error_type": "rate_limit"
                 }
             
-            if resp.status == 500:
-                logger.error("💥 500 SERVER ERROR from OpenRouter")
-                logger.error("   Response: %s", response_text[:300])
-                return {
-                    "model": model_id,
-                    "content": "500 OpenRouter Server Error: Try again later",
-                    "status": "error",
-                    "error_type": "server_error"
-                }
-            
-            # Остальные ошибки
-            logger.error("❌ HTTP %d от модели %s: %s", resp.status, model_id, response_text[:300])
-            return {
-                "model": model_id,
-                "content": f"HTTP {resp.status}: {response_text[:200]}",
-                "status": "error",
-                "error_type": "http_error"
-            }
+            # Общая обработка других ошибок
+            logger.error("❌ Ошибка %d от модели %s: %s", resp.status, model_id, error_text[:200])
+            return {"model": model_id, "content": f"Ошибка {resp.status}: {error_text[:500]}", "status": "error"}
             
     except asyncio.TimeoutError:
         logger.error("⏱️ TIMEOUT - Request exceeded 60 seconds for model %s", model_id)
         return {"model": model_id, "content": "Timeout: Request took too long", "status": "error", "error_type": "timeout"}
     
-    except aiohttp.ClientConnectorError as e:
-        logger.error("🌐 CONNECTION ERROR: %s", str(e))
-        return {"model": model_id, "content": f"Connection Error: {str(e)}", "status": "error", "error_type": "connection"}
-    
     except Exception as e:
-        logger.exception("❌ EXCEPTION in fetch_from_model: %s", str(e))
-        return {"model": model_id, "content": f"Exception: {str(e)}", "status": "error", "error_type": "exception"}
+        logger.exception("Исключение при запросе к модели %s", model_id)
+        return {"model": model_id, "content": f"Исключение: {str(e)}", "status": "error"}
 
 
 async def compare_models(models, session, custom_prompt=None):
@@ -214,7 +180,7 @@ def extract_json(content: str) -> dict:
     raise ValueError("JSON объект не найден")
 
 
-async def ask_judge(session, model1, response1, model2, response2, judge_model_name="deepseek-chat"):
+async def ask_judge(session, model1, response1, model2, response2, judge_model_name="llama-3.1-8b"):
     safe_resp1 = response1.replace("{", "{{").replace("}", "}}")
     safe_resp2 = response2.replace("{", "{{").replace("}", "}}")
     prompt = JUDGE_PROMPT_TEMPLATE.format(
@@ -246,7 +212,7 @@ async def ask_judge(session, model1, response1, model2, response2, judge_model_n
     return {"winner": winner, "reason": reason}
 
 
-async def judge_winner(results, session, judge_model="deepseek-chat"):
+async def judge_winner(results, session, judge_model="llama-3.1-8b"):
     logger.info("Начало судейства, модель судьи: %s", judge_model)
     successful_results = [r for r in results if r.get("status") == "success"]
     failed_results = [r for r in results if r.get("status") == "error"]
