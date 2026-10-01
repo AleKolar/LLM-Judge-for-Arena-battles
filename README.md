@@ -165,10 +165,25 @@ MODEL_B ({model_b_name})
 
 ```python
 AVAILABLE_MODELS = {
-    "gpt-4o-mini": "openai/gpt-4o-mini",
-    "deepseek-chat": "deepseek/deepseek-chat",
+    "llama-3.1-8b": {
+        "provider": "huggingface",
+        "provider_name": "novita",     
+        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "display_name": "🦙 Llama 3.1 8B"
+    },
+    "qwen-coder-7b": {
+        "provider": "huggingface",
+        "provider_name": "nscale",     # 0.01 / 0.03
+        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "display_name": "🐍 Qwen Coder 7B"
+    },
     # ... существующие модели ...
-    "новая-модель": "полный/идентификатор/модели:free",   # <-- Заменить на актуальную модель
+    "новая-модель": {
+        "provider": "provider",
+        "provider_name": "provider_name",     
+        "model_id": "model_id",
+        "display_name": "display_name"
+    },   # <-- Заменить на актуальную модель
 }
 ```
 
@@ -188,11 +203,19 @@ AVAILABLE_MODELS = {
 
 ```python
 JUDGE_MODEL = {
-    "gpt-4o-mini": "openai/gpt-4o-mini",
-    "deepseek-chat": "deepseek/deepseek-chat",
-    "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct",
+    "llama-3.1-8b": {
+        "provider": "huggingface",
+        "provider_name": "novita",     
+        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "display_name": "🦙 Llama 3.1 8B"
+    },
     # 👇 добавьте нового судью сюда
-    "новая-модель-судья": "полный/идентификатор/модели",
+    "новая-модель": {
+        "provider": "provider",
+        "provider_name": "provider_name",     
+        "model_id": "model_id",
+        "display_name": "display_name"
+    }
 }
 ```
 
@@ -337,7 +360,7 @@ LLM-Judge-for-Arena-battles/
 - **Синхронный движок** используется только для миграций Alembic.
 - **Одинаковые модели** — если выбраны две одинаковые модели (например, `gpt-4o-mini`), судья получает уникальные метки «Первая модель» / «Вторая модель», а интерфейс показывает «Модель A» / «Модель B».
 - **Скачивание** доступно для любой битвы по её ID; кнопка появляется только после вынесения вердикта.
-- **Бесплатные модели** OpenRouter могут менять ID; при ошибках проверяйте актуальность идентификаторов на [openrouter.ai](https://openrouter.ai/models?q=free).
+- **Бесплатные модели** OpenRouter могут менять ID; при ошибках проверяйте актуальность идентификаторов на [![Hugging Face Models](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fhuggingface.co%2Fapi%2Fmodels%3Flimit%3D1&query=%24.length&label=Models&color=blue&cacheSeconds=3600)](https://huggingface.co/models).
 
 ---
 
