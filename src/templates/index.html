@@ -1,3 +1,4 @@
+# src/templates/index.html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -14,8 +15,8 @@
         button:hover { background: #5a67d8; }
         button:disabled { opacity: .5; cursor: not-allowed; background: #a0aec0; }
         .arena { display: flex; gap: 20px; margin-top: 10px; }
-        .box { flex: 1; position: relative; background: #1e1e1e; color: #d4d4d4; padding: 0; border-radius: 8px; font-family: monospace; white-space: pre-wrap; min-height: 220px; font-size: .9em; overflow: hidden; }
-        .model-label { position: absolute; top: 0; left: 0; background: rgba(255,255,255,.12); color: #d4d4d4; padding: 3px 10px; font-size: 12px; font-weight: bold; border-bottom-right-radius: 8px; z-index: 2; pointer-events: none; letter-spacing: .5px; }
+        .box { flex: 1; position: relative; background: #1e1e1e; color: #d4d4d4; padding: 0; border-radius: 8px; font-family: monospace; white-space: pre-wrap; min-height: 220px; font-size: .9em; }
+        .model-label { position: absolute; top: 0; left: 0; background: rgba(255,255,255,.12); color: #d4d4d4; padding: 3px 10px; font-size: 12px; font-weight: bold; border-bottom-right-radius: 8px; }
         .code-content { margin: 28px 10px 10px; padding: 8px; background: transparent; overflow-x: auto; }
         .winner { background: #2d3748; color: white; padding: 20px; border-radius: 8px; margin-top: 15px; font-size: 1.05em; line-height: 1.5; }
         .winner b { color: #c6f6d5; }
@@ -43,38 +44,35 @@
     let arenaState = "idle";
     let currentBattleId = null;
 
-    // Синхронизировано с AVAILABLE_MODELS и JUDGE_MODEL в ai_service.py.
     const MODELS = {
-        "llama-3.1-8b": "Llama 3.1 8B (free)",
-        "llama-3.3-70b": "Llama 3.3 70B (free)",
-        "qwen3-coder-480b": "Qwen3 Coder 480B (free)",
-        "llama-3.2-3b": "Llama 3.2 3B (free)"
+        "mistral-7b": "Mistral 7B",
+        "zephyr-7b": "Zephyr 7B",
+        "mistral-nemo": "Mistral Nemo",
+        "llama-3.1-8b": "Llama 3.1 8B (fallback)",
+        "llama-3.3-70b": "Llama 3.3 70B (fallback)"
     };
 
     const JUDGE_MODELS = {
-        "llama-3.1-8b": "Llama 3.1 8B (free)",
-        "llama-3.3-70b": "Llama 3.3 70B (free)"
-    };
-
-    const MODEL_IDS = {
-        "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct:free",
-        "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen3-coder-480b": "qwen/qwen3-coder-480b-a35b-instruct:free",
-        "llama-3.2-3b": "meta-llama/llama-3.2-3b-instruct:free"
+        "mistral-7b": "Mistral 7B (judge)",
+        "zephyr-7b": "Zephyr 7B (judge)",
+        "llama-3.1-8b": "Llama 3.1 8B (fallback)"
     };
 
     window.onload = () => {
         const m1 = document.getElementById("model1");
         const m2 = document.getElementById("model2");
         const judge = document.getElementById("judgeModel");
+
         for (const [id, label] of Object.entries(MODELS)) {
             m1.add(new Option(label, id));
             m2.add(new Option(label, id));
         }
-        m1.value = "llama-3.1-8b";
-        m2.value = "llama-3.3-70b";
+
+        m1.value = "mistral-7b";
+        m2.value = "zephyr-7b";
+
         for (const [id, label] of Object.entries(JUDGE_MODELS)) judge.add(new Option(label, id));
-        judge.value = "llama-3.1-8b";
+        judge.value = "mistral-7b";
     };
 
     function escapeHtml(text) {
@@ -119,7 +117,8 @@
         const judgeModel = document.getElementById("judgeModel").value;
         try {
             const resp = await fetch(`/api/llm-arena/winner/${currentBattleId}`, {
-                method: "POST", headers: {"Content-Type": "application/json"},
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({judge_model: judgeModel})
             });
             const data = await resp.json();
@@ -133,7 +132,7 @@
                 winnerDisplay = `${MODELS[positionName] || positionName} <b>(${data.winner_position === "MODEL_A" ? "Модель A" : "Модель B"})</b>`;
             }
             const reason = data.judge_result?.reason || data.reason || "Комментарий отсутствует";
-            document.getElementById("winner").innerHTML = `<div class="winner">⚖️ Результат битвы<br><br>🏆 Победитель: ${winnerDisplay}<br>🧑‍⚖️ Судья: ${escapeHtml(JUDGE_MODELS[data.judge_model_name] || data.judge_model_name || judgeModel)}<br><br>📌 Комментарии к результату:<br>${escapeHtml(reason)}</div>`;
+            document.getElementById("winner").innerHTML = `<div class="winner">⚖️ Результат битвы<br><br>🏆 Победитель: ${winnerDisplay}<br>🧑‍⚖️ Судья: ${JUDGE_MODELS[judgeModel] || judgeModel}<br>💬 Причина: ${escapeHtml(reason)}</div>`;
             arenaState = "judged";
             document.getElementById("judgeBtn").disabled = true;
             document.getElementById("downloadBtn").style.display = "inline-block";
@@ -148,7 +147,9 @@
         const link = document.createElement("a");
         link.href = `/api/llm-arena/download-result/${currentBattleId}`;
         link.download = `battle_${currentBattleId}_result.md`;
-        document.body.appendChild(link); link.click(); link.remove();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
     }
 </script>
 </body>
