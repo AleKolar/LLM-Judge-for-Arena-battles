@@ -44,7 +44,7 @@ AVAILABLE_MODELS = {
     # ── Малыши: дёшево и быстро ──
     "llama-3.1-8b": {
         "provider": "huggingface",
-        "provider_name": "novita",     # 0.02 / 0.05
+        "provider_name": "novita",
         "model_id": "meta-llama/Llama-3.1-8B-Instruct",
         "display_name": "🦙 Llama 3.1 8B"
     },
