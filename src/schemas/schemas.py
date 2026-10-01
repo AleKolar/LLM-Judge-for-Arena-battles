@@ -25,7 +25,7 @@ class WinnerRequest(BaseModel):
 
 class JudgeWinnerRequest(BaseModel):
      """Тело запроса для выбора модели-судьи."""
-     judge_model: str = "deepseek-chat"
+     judge_model: str = "mistral-7b"
 
      @field_validator("judge_model")
      @classmethod
