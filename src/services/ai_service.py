@@ -32,7 +32,7 @@ API_KEY = HUGGINGFACE_API_KEY  # для обратной совместимос�
 
 # ════════════════════════════════════════════════════════════════
 # ДОСТУПНЫЕ МОДЕЛИ И ИХ КОНФИГУРАЦИЯ
-# Только Hugging Face (OpenRouter недоступен территориально)
+# Только Hugging Face (бесплатно, без территориальных ограничений)
 # ════════════════════════════════════════════════════════════════
 
 AVAILABLE_MODELS = {
@@ -46,12 +46,17 @@ AVAILABLE_MODELS = {
         "model_id": "HuggingFaceH4/zephyr-7b-beta",
         "display_name": "⚡ Zephyr 7B"
     },
+    "neural-chat-7b": {
+        "provider": "huggingface",
+        "model_id": "Intel/neural-chat-7b-v3-3",
+        "display_name": "🧠 Neural Chat 7B"
+    },
     "mistral-nemo": {
         "provider": "huggingface",
         "model_id": "mistralai/Mistral-Nemo-Instruct-2407",
         "display_name": "🚀 Mistral Nemo"
     },
-    # backward compatibility aliases
+    # Legacy aliases для обратной совместимости со старыми тестами
     "gpt-4o-mini": {
         "provider": "huggingface",
         "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -69,6 +74,7 @@ AVAILABLE_MODELS = {
     },
 }
 
+# Модели-судьи
 JUDGE_MODEL = {
     "mistral-7b": {
         "provider": "huggingface",
@@ -85,7 +91,7 @@ JUDGE_MODEL = {
         "model_id": "mistralai/Mistral-Nemo-Instruct-2407",
         "display_name": "🚀 Mistral Nemo (Judge)"
     },
-    # backward compatibility aliases
+    # Legacy aliases
     "deepseek-chat": {
         "provider": "huggingface",
         "model_id": "HuggingFaceH4/zephyr-7b-beta",
@@ -204,6 +210,10 @@ async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max
             "status": "error"
         }
 
+
+# ════════════════════════════════════════════════════════════════
+# УНИВЕРСАЛЬНЫЙ ФЕТЧЕР
+# ════════════════════════════════════════════════════════════════
 
 async def fetch_from_model(session, model_key, prompt, temperature=0.0, max_tokens=2000):
     """
