@@ -10,7 +10,7 @@ from starlette.staticfiles import StaticFiles
 
 from src.database.database import async_engine
 from src.routers import llm_arena
-from src.services.ai_service import API_KEY
+from src.services.ai_service import HUGGINGFACE_API_KEY, OPENROUTER_API_KEY
 
 logger = logging.getLogger("uvicorn")
 
@@ -22,22 +22,25 @@ async def lifespan(app: FastAPI):
         headers={"User-Agent": "LLM Arena/3.0"}
     )
     # ── Блок проверки AI-сервиса ──
-    if not API_KEY:
-        logger.warning("⚠️ OPENROUTER_API_KEY не задан. LLM Arena будет недоступна.")
+    if not HUGGINGFACE_API_KEY:
+        logger.warning("⚠️ HUGGINGFACE_API_KEY не задан. LLM Arena будет работать в ограниченном режиме.")
     else:
         # Проверим доступность API
         try:
-            # Проверим доступность эндпоинта OpenRouter
             async with app.state.http_session.get(
-                "https://openrouter.ai/api/v1/auth/key",
-                headers={"Authorization": f"Bearer {API_KEY}"}
+                "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3",
+                headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
             ) as resp:
                 if resp.status == 200:
-                    logger.info("✅ OpenRouter API доступен")
+                    logger.info("✅ Hugging Face API доступен")
                 else:
-                    logger.warning(f"⚠️ OpenRouter вернул статус {resp.status}")
+                    logger.warning(f"⚠️ Hugging Face вернул статус {resp.status}")
         except Exception as e:
-            logger.warning(f"⚠️ Не удалось проверить OpenRouter: {e}")
+            logger.warning(f"⚠️ Не удалось проверить Hugging Face: {e}")
+    
+    if not OPENROUTER_API_KEY:
+        logger.info("ℹ️ OPENROUTER_API_KEY не задан (fallback)")
+    
     try:
         async with async_engine.connect() as conn:
             result = await conn.execute(text("SELECT 1"))
