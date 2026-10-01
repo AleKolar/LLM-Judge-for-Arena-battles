@@ -10,7 +10,7 @@ from src.models.db_models import ArenaResult
 from src.models.models import BattleHistoryResponse, CompareRequest, WinnerResponse, FullBattleRequest
 from src.schemas.schemas import JudgeWinnerRequest
 from src.services.ai_service import (
-    AVAILABLE_MODELS, DEFAULT_MODELS,
+    AVAILABLE_MODELS, DEFAULT_MODELS, SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE,
     judge_winner, run_arena_comparison, JUDGE_MODEL,
 )
 from src.services.arena_result import get_last_result_service, get_battle_by_id
@@ -28,17 +28,31 @@ if not logger.handlers:
 router = APIRouter(prefix="/api/llm-arena", tags=["LLM Arena"])
 limiter = Limiter(key_func=get_remote_address)
 
+
 @router.get("/models")
 async def list_models():
     return AVAILABLE_MODELS
+
 
 @router.get("/judge_models")
 async def list_judge_models():
     return JUDGE_MODEL
 
 
+@router.get("/prompts/system")
+async def get_system_prompt():
+    """Returns the default prompt used for battle participants."""
+    return {"prompt": SYSTEM_PROMPT}
+
+
+@router.get("/prompts/judge")
+async def get_judge_prompt():
+    """Returns the default judge prompt template."""
+    return {"prompt": JUDGE_PROMPT_TEMPLATE}
+
+
 @router.post("/compare")
-@limiter.limit("6/minute")   # не более 6 запросов в минуту
+@limiter.limit("6/minute")
 async def run_comparison(
         request: Request,
         payload: CompareRequest,
@@ -75,7 +89,7 @@ async def run_comparison(
 
 
 @router.post("/winner/{battle_id}", response_model=WinnerResponse)
-@limiter.limit("10/minute")  # судейство 10 раз / запросов в минуту
+@limiter.limit("10/minute")
 async def declare_winner(
         battle_id: int,
         payload: JudgeWinnerRequest,
@@ -98,6 +112,7 @@ async def declare_winner(
             results,
             request.app.state.http_session,
             judge_model=payload.judge_model,
+            judge_prompt=payload.judge_prompt,
         )
     except Exception as e:
         logger.exception("Ошибка при судействе битвы %d: %s", battle_id, e)
@@ -165,29 +180,7 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
     )
 
 
-@router.post(
-    "/battle",
-    response_model=WinnerResponse,
-    summary="Full LLM Battle Pipeline",
-    description=(
-        "Full LLM Arena pipeline:\n\n"
-        "1. Генерация ответов моделей\n"
-        "2. Судейство (LLM Judge)\n"
-        "3. Сохранение итогового результата в БД\n"
-        "4. Возврат финального verdict\n\n"
-        "### Пример запроса:\n"
-        "```json\n"
-        "{\n"
-        '  "models": [\n'
-        '    "gpt-4o-mini",\n'
-        '    "deepseek-chat"\n'
-        "  ],\n"
-        '  "judge_model": "deepseek-chat",\n'
-        '  "prompt": "Сгенерируй короткую Python-функцию, которая проверяет високосный год. Напиши pytest тесты. Верни только Python-код без markdown."\n'
-        "}\n"
-        "```"
-    )
-)
+@router.post("/battle", response_model=WinnerResponse)
 @limiter.limit("5/minute")
 async def full_battle(
         payload: FullBattleRequest,
@@ -195,7 +188,6 @@ async def full_battle(
         db: AsyncSession = Depends(get_async_db)
 ):
     session = request.app.state.http_session
-
     models = payload.models
 
     if len(models) != 2:
@@ -203,13 +195,11 @@ async def full_battle(
 
     logger.info("battle: models=%s judge=%s", models, payload.judge_model)
 
-    # 1. GENERATION
     compare_result = await run_arena_comparison(
         models=models,
         session=session,
         prompt=payload.prompt
     )
-
     compare_result = compare_result or {}
 
     if compare_result.get("error"):
@@ -219,38 +209,29 @@ async def full_battle(
     results = normalize_evidence(raw_results)
     elapsed = compare_result.get("elapsed", 0)
 
-    # 2. SAVE
     battle = ArenaResult(
-        model1=models[0],
-        model2=models[1],
-        winner=None,
-        message="Pending judge",
-        evidence=results
+        model1=models[0], model2=models[1], winner=None,
+        message="Pending judge", evidence=results
     )
-
     db.add(battle)
     await db.commit()
     await db.refresh(battle)
 
-    # 3. JUDGE
     decision_raw = await judge_winner(
         results=results,
         session=session,
-        judge_model=payload.judge_model
+        judge_model=payload.judge_model,
+        judge_prompt=payload.judge_prompt,
     )
-
     decision = normalize_decision(decision_raw)
 
-    # 4. UPDATE DB
     battle.judge_model_name = payload.judge_model
     battle.winner = decision["winners"][0] if decision["winners"] else None
     battle.message = decision.get("message", "")
     battle.judge_reason = decision.get("reason", "")
     battle.winner_position = decision.get("winner_position")
-
     await db.commit()
 
-    # 5. RESPONSE ENRICHMENT
     decision.update({
         "arena_result_id": battle.id,
         "elapsed": elapsed,
@@ -258,5 +239,4 @@ async def full_battle(
         "model_b_name": battle.model2,
         "judge_model_name": payload.judge_model,
     })
-
     return WinnerResponse(**decision)
