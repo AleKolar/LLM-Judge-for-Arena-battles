@@ -30,82 +30,159 @@ load_dotenv()
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 API_KEY = HUGGINGFACE_API_KEY  # для обратной совместимости
 
+# Базовый URL OpenAI-совместимого роутера HF
+HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
+
+
 # ════════════════════════════════════════════════════════════════
 # ДОСТУПНЫЕ МОДЕЛИ И ИХ КОНФИГУРАЦИЯ
-# Только Hugging Face (бесплатно, без территориальных ограничений)
+# Только модели, доступные в HF Router на 2026-10-01
+# Цены указаны за 1M токенов (input / output) в USD
 # ════════════════════════════════════════════════════════════════
 
 AVAILABLE_MODELS = {
+    # ── Малыши: дёшево и быстро ──
+    "llama-3.1-8b": {
+        "provider": "huggingface",
+        "provider_name": "novita",     # 0.02 / 0.05
+        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "display_name": "🦙 Llama 3.1 8B"
+    },
+    "qwen-coder-7b": {
+        "provider": "huggingface",
+        "provider_name": "nscale",     # 0.01 / 0.03
+        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "display_name": "🐍 Qwen Coder 7B"
+    },
+    "qwen3-4b": {
+        "provider": "huggingface",
+        "provider_name": "nscale",     # 0.01 / 0.03
+        "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+        "display_name": "🌱 Qwen3 4B"
+    },
+    "gemma-3-4b": {
+        "provider": "huggingface",
+        "provider_name": "deepinfra",  # 0.05 / 0.10
+        "model_id": "google/gemma-3-4b-it",
+        "display_name": "💎 Gemma 3 4B"
+    },
+
+    # ── Средние: лучше по качеству ──
+    "qwen3-14b": {
+        "provider": "huggingface",
+        "provider_name": "nscale",     # 0.07 / 0.20
+        "model_id": "Qwen/Qwen3-14B",
+        "display_name": "🌊 Qwen3 14B"
+    },
+    "gpt-oss-20b": {
+        "provider": "huggingface",
+        "provider_name": "deepinfra",  # 0.03 / 0.14
+        "model_id": "openai/gpt-oss-20b",
+        "display_name": "🤖 gpt-oss 20B"
+    },
+    "phi-4": {
+        "provider": "huggingface",
+        "provider_name": "deepinfra",  # 0.07 / 0.14
+        "model_id": "microsoft/phi-4",
+        "display_name": "🧪 Phi-4"
+    },
+
+    # ── Legacy aliases — чтобы не ломать старые тесты и клиентов ──
     "mistral-7b": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
-        "display_name": "🟦 Mistral 7B"
+        "provider_name": "novita",
+        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "display_name": "🦙 Llama 3.1 8B"
     },
     "zephyr-7b": {
         "provider": "huggingface",
-        "model_id": "HuggingFaceH4/zephyr-7b-beta",
-        "display_name": "⚡ Zephyr 7B"
-    },
-    "neural-chat-7b": {
-        "provider": "huggingface",
-        "model_id": "Intel/neural-chat-7b-v3-3",
-        "display_name": "🧠 Neural Chat 7B"
+        "provider_name": "nscale",
+        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "display_name": "🐍 Qwen Coder 7B"
     },
     "mistral-nemo": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-Nemo-Instruct-2407",
-        "display_name": "🚀 Mistral Nemo"
+        "provider_name": "nscale",
+        "model_id": "Qwen/Qwen3-14B",
+        "display_name": "🌊 Qwen3 14B"
     },
-    # Legacy aliases для обратной совместимости со старыми тестами
     "gpt-4o-mini": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
-        "display_name": "🟦 Mistral 7B"
+        "provider_name": "novita",
+        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "display_name": "🦙 Llama 3.1 8B"
     },
     "deepseek-chat": {
         "provider": "huggingface",
-        "model_id": "HuggingFaceH4/zephyr-7b-beta",
-        "display_name": "⚡ Zephyr 7B"
+        "provider_name": "nscale",
+        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "display_name": "🐍 Qwen Coder 7B"
     },
     "qwen": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-Nemo-Instruct-2407",
-        "display_name": "🚀 Mistral Nemo"
+        "provider_name": "nscale",
+        "model_id": "Qwen/Qwen3-14B",
+        "display_name": "🌊 Qwen3 14B"
     },
 }
 
-# Модели-судьи
+
+# ── Модели-судьи (нужен поумнее) ──
 JUDGE_MODEL = {
+    "gpt-oss-120b": {
+        "provider": "huggingface",
+        "provider_name": "deepinfra",  # 0.037 / 0.17
+        "model_id": "openai/gpt-oss-120b",
+        "display_name": "⚖️ gpt-oss 120B (Judge)"
+    },
+    "llama-3.3-70b": {
+        "provider": "huggingface",
+        "provider_name": "novita",     # 0.135 / 0.4
+        "model_id": "meta-llama/Llama-3.3-70B-Instruct",
+        "display_name": "⚖️ Llama 3.3 70B (Judge)"
+    },
+    "qwen3-32b": {
+        "provider": "huggingface",
+        "provider_name": "nscale",     # 0.08 / 0.25
+        "model_id": "Qwen/Qwen3-32B",
+        "display_name": "⚖️ Qwen3 32B (Judge)"
+    },
+
+    # ── Legacy aliases для судьи ──
     "mistral-7b": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
-        "display_name": "🟦 Mistral 7B (Judge)"
+        "provider_name": "deepinfra",
+        "model_id": "openai/gpt-oss-20b",
+        "display_name": "⚖️ gpt-oss 20B (Judge)"
     },
     "zephyr-7b": {
         "provider": "huggingface",
-        "model_id": "HuggingFaceH4/zephyr-7b-beta",
-        "display_name": "⚡ Zephyr 7B (Judge)"
+        "provider_name": "nscale",
+        "model_id": "Qwen/Qwen3-32B",
+        "display_name": "⚖️ Qwen3 32B (Judge)"
     },
     "mistral-nemo": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-Nemo-Instruct-2407",
-        "display_name": "🚀 Mistral Nemo (Judge)"
+        "provider_name": "deepinfra",
+        "model_id": "openai/gpt-oss-120b",
+        "display_name": "⚖️ gpt-oss 120B (Judge)"
     },
-    # Legacy aliases
     "deepseek-chat": {
         "provider": "huggingface",
-        "model_id": "HuggingFaceH4/zephyr-7b-beta",
-        "display_name": "⚡ Zephyr 7B (Judge)"
+        "provider_name": "nscale",
+        "model_id": "Qwen/Qwen3-32B",
+        "display_name": "⚖️ Qwen3 32B (Judge)"
     },
     "gpt-4o-mini": {
         "provider": "huggingface",
-        "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
-        "display_name": "🟦 Mistral 7B (Judge)"
+        "provider_name": "deepinfra",
+        "model_id": "openai/gpt-oss-20b",
+        "display_name": "⚖️ gpt-oss 20B (Judge)"
     },
 }
 
-DEFAULT_MODELS = ["mistral-7b", "zephyr-7b"]
-DEFAULT_JUDGE = "mistral-7b"
+DEFAULT_MODELS = ["llama-3.1-8b", "qwen-coder-7b"]
+DEFAULT_JUDGE = "gpt-oss-120b"
 
 
 def load_prompt(filename: str) -> str:
@@ -121,93 +198,83 @@ JUDGE_PROMPT_TEMPLATE = load_prompt("judge_prompt.md")
 
 
 # ════════════════════════════════════════════════════════════════
-# HUGGING FACE INFERENCE API
+# HUGGING FACE INFERENCE (OpenAI-совместимый роутер)
 # ════════════════════════════════════════════════════════════════
 
 async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max_tokens=2000):
     """
-    Использует Hugging Face Inference API (бесплатно).
-    
-    Требует HUGGINGFACE_API_KEY (получить на https://huggingface.co/settings/tokens)
-    - Создайте User Access Token с правом "Inference"
-    - Добавьте в .env: HUGGINGFACE_API_KEY=hf_xxxxx
+    Вызывает HF Router в OpenAI-совместимом формате.
+    model_id должен иметь вид "author/Model:provider" (например,
+    "meta-llama/Llama-3.1-8B-Instruct:novita").
+
+    Требует HUGGINGFACE_API_KEY в .env (см. https://huggingface.co/settings/tokens).
+    У токена должно быть право "Make calls to Inference Providers".
     """
     if not API_KEY:
         logger.error("HUGGINGFACE_API_KEY не задан в .env")
         return {
-            "model": model_id, 
-            "content": "Ошибка: HUGGINGFACE_API_KEY не задан", 
-            "status": "error"
+            "model": model_id,
+            "content": "Ошибка: HUGGINGFACE_API_KEY не задан",
+            "status": "error",
         }
 
     logger.info("🤗 Hugging Face запрос к %s", model_id)
-    url = f"https://api-inference.huggingface.co/models/{model_id}"
-    
+
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
     }
-    
     payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_tokens,
-            "temperature": temperature,
-            "top_p": 0.95,
-            "repetition_penalty": 1.05,
-            "do_sample": temperature > 0,
-        },
-        "options": {
-            "wait_for_model": True,  # Дождётся, если модель загружается
-        }
+        "model": model_id,                 # "author/Model:provider"
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
     }
-    
+
     try:
         async with session.post(
-            url, 
-            headers=headers, 
+            HF_ROUTER_URL,
+            headers=headers,
             json=payload,
-            timeout=aiohttp.ClientTimeout(total=120)
+            timeout=aiohttp.ClientTimeout(total=120),
         ) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                # HF возвращает список с generated_text
-                if isinstance(data, list) and len(data) > 0:
-                    content = data[0].get("generated_text", "")
-                    # Удаляем дублирующийся промпт
-                    if content.startswith(prompt):
-                        content = content[len(prompt):].strip()
-                    logger.info("✅ 🤗 Hugging Face успех (%d символов)", len(content))
-                    return {"model": model_id, "content": content, "status": "success"}
-                else:
-                    logger.error("❌ HF неожиданный формат: %s", data)
+                try:
+                    content = data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError) as e:
+                    logger.error("❌ HF неожиданный формат ответа: %s", str(data)[:300])
                     return {
-                        "model": model_id, 
-                        "content": f"HF: неожиданный формат {type(data)}", 
-                        "status": "error"
+                        "model": model_id,
+                        "content": f"HF: неожиданный формат ответа ({e})",
+                        "status": "error",
                     }
-            
+                logger.info("✅ 🤗 Hugging Face успех (%d символов)", len(content))
+                return {"model": model_id, "content": content, "status": "success"}
+
             error_text = await resp.text()
-            logger.error("❌ 🤗 HF ошибка %d: %s", resp.status, error_text[:150])
+            logger.error("❌ 🤗 HF ошибка %d: %s", resp.status, error_text[:200])
             return {
-                "model": model_id, 
-                "content": f"Hugging Face ошибка {resp.status}", 
-                "status": "error"
+                "model": model_id,
+                "content": f"Hugging Face ошибка {resp.status}: {error_text[:150]}",
+                "status": "error",
             }
-            
+
     except asyncio.TimeoutError:
         logger.error("⏱️ 🤗 HF TIMEOUT")
         return {
-            "model": model_id, 
-            "content": "Timeout: Hugging Face запрос слишком долго", 
-            "status": "error"
+            "model": model_id,
+            "content": "Timeout: Hugging Face запрос слишком долго",
+            "status": "error",
         }
     except Exception as e:
         logger.exception("🤗 HF исключение")
         return {
-            "model": model_id, 
-            "content": f"HF исключение: {str(e)[:100]}", 
-            "status": "error"
+            "model": model_id,
+            "content": f"HF исключение: {str(e)[:100]}",
+            "status": "error",
         }
 
 
@@ -217,37 +284,42 @@ async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max
 
 async def fetch_from_model(session, model_key, prompt, temperature=0.0, max_tokens=2000):
     """
-    Универсальный фетчер. Использует только Hugging Face.
+    Универсальный фетчер. Находит модель по ключу в AVAILABLE_MODELS,
+    собирает полный ID с провайдером и вызывает HF Router.
     """
     if model_key not in AVAILABLE_MODELS:
         logger.error("Модель %s не найдена", model_key)
         return {
             "model": model_key,
             "content": f"Модель {model_key} не найдена",
-            "status": "error"
+            "status": "error",
         }
-    
+
     config = AVAILABLE_MODELS[model_key]
     model_id = config["model_id"]
-    
-    return await fetch_from_huggingface(session, model_id, prompt, temperature, max_tokens)
+    provider = config.get("provider_name")
+    full_model_id = f"{model_id}:{provider}" if provider else model_id
+
+    return await fetch_from_huggingface(
+        session, full_model_id, prompt, temperature, max_tokens
+    )
 
 
 async def compare_models(models, session, custom_prompt=None):
     """Запускает две модели параллельно."""
     prompt = custom_prompt or SYSTEM_PROMPT
-    
+
     tasks = []
     for model_key in models:
         if model_key not in AVAILABLE_MODELS:
             logger.warning("Модель %s не найдена", model_key)
             continue
         tasks.append(fetch_from_model(session, model_key, prompt))
-    
+
     if not tasks:
         logger.warning("Не выбрано ни одной модели")
         return {"error": "Не выбрано ни одной модели"}
-    
+
     logger.info("📊 Запуск сравнения %d модели(й)", len(tasks))
     results = await asyncio.gather(*tasks)
     return {"results": results}
@@ -290,11 +362,11 @@ async def ask_judge(session, model1, response1, model2, response2, judge_model_k
     """Отправляет ответы двух моделей судье."""
     if judge_model_key is None:
         judge_model_key = DEFAULT_JUDGE
-    
+
     if judge_model_key not in JUDGE_MODEL:
         logger.warning("Судья %s не найден, используем default", judge_model_key)
         judge_model_key = DEFAULT_JUDGE
-    
+
     safe_resp1 = response1.replace("{", "{{").replace("}", "}}")
     safe_resp2 = response2.replace("{", "{{").replace("}", "}}")
     prompt = JUDGE_PROMPT_TEMPLATE.format(
@@ -303,32 +375,41 @@ async def ask_judge(session, model1, response1, model2, response2, judge_model_k
         model_b_name=model2,
         response_b=safe_resp2,
     )
-    
+
     logger.info("⚖️ Отправка запроса судье %s", judge_model_key)
-    response = await fetch_from_model(session, judge_model_key, prompt, temperature=0.0, max_tokens=1500)
-    
+
+    # Резолвим судью через JUDGE_MODEL и вызываем роутер напрямую
+    judge_config = JUDGE_MODEL[judge_model_key]
+    judge_model_id = judge_config["model_id"]
+    judge_provider = judge_config.get("provider_name")
+    full_judge_id = f"{judge_model_id}:{judge_provider}" if judge_provider else judge_model_id
+
+    response = await fetch_from_huggingface(
+        session, full_judge_id, prompt, temperature=0.0, max_tokens=1500
+    )
+
     if response["status"] != "success":
         logger.error("❌ Судья не ответил: %s", response["content"][:200])
         return {"error": f"Судья не ответил: {response['content']}"}
-    
+
     try:
         verdict = extract_json(response["content"])
         logger.info("✅ Судья вернул: %s", verdict.get("winner"))
     except Exception as e:
         logger.warning("⚠️ Ошибка парсинга JSON: %s", str(e))
         return {"error": f"Ошибка парсинга JSON: {str(e)}", "raw_response": response["content"]}
-    
+
     winner = verdict.get("winner")
     reason = verdict.get("reason")
-    
+
     if winner not in ["MODEL_A", "MODEL_B", "DRAW"]:
         logger.warning("⚠️ Неверный winner: %s", winner)
         return {"error": f"Неверный winner: {winner}", "raw_response": response["content"]}
-    
+
     if not isinstance(reason, str) or not reason.strip():
         logger.warning("⚠️ Пустой reason")
         return {"error": "Пустой reason", "raw_response": response["content"]}
-    
+
     return {"winner": winner, "reason": reason}
 
 
@@ -336,7 +417,7 @@ async def judge_winner(results, session, judge_model=None):
     """Определяет победителя на основе ответов моделей."""
     if judge_model is None:
         judge_model = DEFAULT_JUDGE
-    
+
     logger.info("⚖️ Начало судейства, модель: %s", judge_model)
     successful_results = [r for r in results if r.get("status") == "success"]
     failed_results = [r for r in results if r.get("status") == "error"]
@@ -382,7 +463,9 @@ async def judge_winner(results, session, judge_model=None):
     else:
         judge_model1, judge_model2 = model1, model2
 
-    judge_result = await ask_judge(session, judge_model1, response1, judge_model2, response2, judge_model)
+    judge_result = await ask_judge(
+        session, judge_model1, response1, judge_model2, response2, judge_model
+    )
 
     if "error" in judge_result:
         error_detail = judge_result.get("error", "Неизвестная ошибка")
@@ -396,7 +479,7 @@ async def judge_winner(results, session, judge_model=None):
             "evidence": results,
             "winner_position": None,
             "judge_model": judge_model,
-            "reason": error_detail
+            "reason": error_detail,
         }
 
     winner_alias = judge_result["winner"]

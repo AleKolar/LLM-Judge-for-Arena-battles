@@ -1,4 +1,3 @@
-# src/templates/index.html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -44,35 +43,90 @@
     let arenaState = "idle";
     let currentBattleId = null;
 
-    const MODELS = {
-        "mistral-7b": "Mistral 7B",
-        "zephyr-7b": "Zephyr 7B",
-        "mistral-nemo": "Mistral Nemo",
-        "llama-3.1-8b": "Llama 3.1 8B (fallback)",
-        "llama-3.3-70b": "Llama 3.3 70B (fallback)"
+    // ── Модели. По умолчанию — fallback, перезапишется с бэкенда при загрузке страницы ──
+    // Формат: { "model-key": { display_name: "..." , ... }, ... }
+    let MODELS = {
+        "llama-3.1-8b":  { display_name: "🦙 Llama 3.1 8B" },
+        "qwen-coder-7b": { display_name: "🐍 Qwen Coder 7B" },
+        "qwen3-4b":      { display_name: "🌱 Qwen3 4B" },
+        "gemma-3-4b":    { display_name: "💎 Gemma 3 4B" },
+        "qwen3-14b":     { display_name: "🌊 Qwen3 14B" },
+        "gpt-oss-20b":   { display_name: "🤖 gpt-oss 20B" },
+        "phi-4":         { display_name: "🧪 Phi-4" },
+    };
+    let JUDGE_MODELS = {
+        "gpt-oss-120b":  { display_name: "⚖️ gpt-oss 120B (Judge)" },
+        "llama-3.3-70b": { display_name: "⚖️ Llama 3.3 70B (Judge)" },
+        "qwen3-32b":     { display_name: "⚖️ Qwen3 32B (Judge)" },
     };
 
-    const JUDGE_MODELS = {
-        "mistral-7b": "Mistral 7B (judge)",
-        "zephyr-7b": "Zephyr 7B (judge)",
-        "llama-3.1-8b": "Llama 3.1 8B (fallback)"
-    };
+    const DEFAULT_MODEL_A = "llama-3.1-8b";
+    const DEFAULT_MODEL_B = "qwen-coder-7b";
+    const DEFAULT_JUDGE   = "gpt-oss-120b";
 
-    window.onload = () => {
+    // ── Утилиты для отображения имён ──
+    function modelLabel(id) {
+        return (MODELS[id] && MODELS[id].display_name) || id;
+    }
+    function judgeLabel(id) {
+        return (JUDGE_MODELS[id] && JUDGE_MODELS[id].display_name) || id;
+    }
+
+    // ── Загрузка актуального списка моделей с бэкенда ──
+    async function loadModelsFromBackend() {
+        try {
+            const [modelsResp, judgesResp] = await Promise.all([
+                fetch("/api/llm-arena/models"),
+                fetch("/api/llm-arena/judge_models"),
+            ]);
+            if (modelsResp.ok) {
+                const data = await modelsResp.json();
+                if (data && typeof data === "object" && Object.keys(data).length) {
+                    MODELS = data;
+                }
+            }
+            if (judgesResp.ok) {
+                const data = await judgesResp.json();
+                if (data && typeof data === "object" && Object.keys(data).length) {
+                    JUDGE_MODELS = data;
+                }
+            }
+        } catch (e) {
+            console.warn("Не удалось загрузить список моделей с бэкенда, использую fallback:", e);
+        }
+    }
+
+    // ── Заполнение <select> актуальными моделями ──
+    function fillSelects() {
         const m1 = document.getElementById("model1");
         const m2 = document.getElementById("model2");
         const judge = document.getElementById("judgeModel");
 
-        for (const [id, label] of Object.entries(MODELS)) {
+        m1.innerHTML = "";
+        m2.innerHTML = "";
+        judge.innerHTML = "";
+
+        const modelIds = Object.keys(MODELS);
+        for (const id of modelIds) {
+            const label = modelLabel(id);
             m1.add(new Option(label, id));
             m2.add(new Option(label, id));
         }
 
-        m1.value = "mistral-7b";
-        m2.value = "zephyr-7b";
+        // Выбор дефолтов: если есть в списке — ставим, иначе первый / второй доступный
+        m1.value = modelIds.includes(DEFAULT_MODEL_A) ? DEFAULT_MODEL_A : (modelIds[0] || "");
+        m2.value = modelIds.includes(DEFAULT_MODEL_B) ? DEFAULT_MODEL_B : (modelIds[1] || modelIds[0] || "");
 
-        for (const [id, label] of Object.entries(JUDGE_MODELS)) judge.add(new Option(label, id));
-        judge.value = "mistral-7b";
+        const judgeIds = Object.keys(JUDGE_MODELS);
+        for (const id of judgeIds) {
+            judge.add(new Option(judgeLabel(id), id));
+        }
+        judge.value = judgeIds.includes(DEFAULT_JUDGE) ? DEFAULT_JUDGE : (judgeIds[0] || "");
+    }
+
+    window.onload = async () => {
+        await loadModelsFromBackend();
+        fillSelects();
     };
 
     function escapeHtml(text) {
@@ -95,14 +149,21 @@
             const resp = await fetch("/api/llm-arena/compare", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({models: [document.getElementById("model1").value, document.getElementById("model2").value]})
+                body: JSON.stringify({
+                    models: [
+                        document.getElementById("model1").value,
+                        document.getElementById("model2").value,
+                    ],
+                }),
             });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.detail || "Ошибка генерации");
+
             currentBattleId = data.arena_result_id;
             const results = data.results || [];
             document.getElementById("code1-text").innerText = results[0]?.content || "Ошибка: пустой ответ";
             document.getElementById("code2-text").innerText = results[1]?.content || "Ошибка: пустой ответ";
+
             arenaState = "generated";
             document.getElementById("judgeBtn").disabled = false;
         } catch (error) {
@@ -113,32 +174,47 @@
     }
 
     async function judgeArena() {
-        if (arenaState !== "generated" || !currentBattleId) return alert("Сначала сгенерируйте код");
+        if (arenaState !== "generated" || !currentBattleId) {
+            return alert("Сначала сгенерируйте код");
+        }
         const judgeModel = document.getElementById("judgeModel").value;
+
         try {
             const resp = await fetch(`/api/llm-arena/winner/${currentBattleId}`, {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({judge_model: judgeModel})
+                body: JSON.stringify({judge_model: judgeModel}),
             });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.detail || "Ошибка судейства");
+
             const winnerFull = data.winners?.[0] || null;
             const modelA = data.model_a_name || document.getElementById("model1").value;
             const modelB = data.model_b_name || document.getElementById("model2").value;
+
             let winnerDisplay = "Ничья";
             if (winnerFull) {
                 const positionName = data.winner_position === "MODEL_A" ? modelA : modelB;
-                winnerDisplay = `${MODELS[positionName] || positionName} <b>(${data.winner_position === "MODEL_A" ? "Модель A" : "Модель B"})</b>`;
+                const positionLabel = data.winner_position === "MODEL_A" ? "Модель A" : "Модель B";
+                winnerDisplay = `${modelLabel(positionName)} <b>(${positionLabel})</b>`;
             }
+
             const reason = data.judge_result?.reason || data.reason || "Комментарий отсутствует";
-            document.getElementById("winner").innerHTML = `<div class="winner">⚖️ Результат битвы<br><br>🏆 Победитель: ${winnerDisplay}<br>🧑‍⚖️ Судья: ${JUDGE_MODELS[judgeModel] || judgeModel}<br>💬 Причина: ${escapeHtml(reason)}</div>`;
+            document.getElementById("winner").innerHTML = `
+                <div class="winner">
+                    ⚖️ Результат битвы<br><br>
+                    🏆 Победитель: ${winnerDisplay}<br>
+                    🧑‍⚖️ Судья: ${judgeLabel(judgeModel)}<br>
+                    💬 Причина: ${escapeHtml(reason)}
+                </div>`;
+
             arenaState = "judged";
             document.getElementById("judgeBtn").disabled = true;
             document.getElementById("downloadBtn").style.display = "inline-block";
             document.getElementById("downloadBtn").disabled = false;
         } catch (error) {
-            document.getElementById("winner").innerHTML = `<div class="winner">Ошибка судейства: ${escapeHtml(error.message)}</div>`;
+            document.getElementById("winner").innerHTML =
+                `<div class="winner">Ошибка судейства: ${escapeHtml(error.message)}</div>`;
         }
     }
 

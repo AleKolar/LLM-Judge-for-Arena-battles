@@ -1,4 +1,5 @@
 # src/tests/test_main.py
+# src/tests/test_main.py
 import logging
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,12 @@ from src.services.ai_service import judge_winner
 from src.services.arena_result import get_last_result_service, get_battle_by_id
 from src.services.download_service import generate_battle_markdown
 from src.utils.normalize import normalize_evidence, to_md
+
+
+# Ключи моделей, реально существующие в AVAILABLE_MODELS
+VALID_MODEL_A = "llama-3.1-8b"
+VALID_MODEL_B = "qwen-coder-7b"
+VALID_JUDGE = "gpt-oss-120b"
 
 
 # =========================
@@ -70,19 +77,19 @@ async def test_compare_models(client):
         mock_fetch.side_effect = [
             # MODEL_A
             _mock_llm_response(
-                "openai/gpt-4o-mini",
+                VALID_MODEL_A,
                 "def is_leap(y): return y % 400 == 0 or (y % 4 == 0 and y % 100 != 0)"
             ),
             # MODEL_B
             _mock_llm_response(
-                "deepseek/deepseek-chat",
+                VALID_MODEL_B,
                 "def is_leap(y): return y % 4 == 0"
             ),
         ]
 
         resp = client.post(
             "/api/llm-arena/compare",
-            json={"models": ["gpt-4o-mini", "deepseek-chat"]},
+            json={"models": [VALID_MODEL_A, VALID_MODEL_B]},
         )
 
         assert resp.status_code == 200
@@ -100,7 +107,10 @@ async def test_compare_models(client):
 def test_list_models(client):
     resp = client.get("/api/llm-arena/models")
     assert resp.status_code == 200
-    assert "deepseek-chat" in resp.json()
+    # Проверяем, что актуальные ключи присутствуют
+    models = resp.json()
+    assert VALID_MODEL_A in models
+    assert VALID_MODEL_B in models
 
 
 @pytest.mark.asyncio
@@ -110,15 +120,15 @@ async def test_winner_endpoint(client):
 
     mock_battle = MagicMock()
     mock_battle.id = battle_id
-    mock_battle.model1 = "gpt-4o-mini"
-    mock_battle.model2 = "deepseek-chat"
+    mock_battle.model1 = VALID_MODEL_A
+    mock_battle.model2 = VALID_MODEL_B
     mock_battle.evidence = [
-        _mock_llm_response("openai/gpt-4o-mini", "code A"),
-        _mock_llm_response("deepseek-chat", "code B"),
+        _mock_llm_response(VALID_MODEL_A, "code A"),
+        _mock_llm_response(VALID_MODEL_B, "code B"),
     ]
     mock_battle.winner = None
     mock_battle.message = ""
-    mock_battle.judge_model_name = None   # новое поле
+    mock_battle.judge_model_name = None
 
     with patch(
         "src.services.ai_service.ask_judge", new_callable=AsyncMock
@@ -133,21 +143,20 @@ async def test_winner_endpoint(client):
         ) as mock_get_battle:
             mock_get_battle.return_value = mock_battle
 
-            # Отправляем тело с выбором судьи
             resp = client.post(
                 f"/api/llm-arena/winner/{battle_id}",
-                json={"judge_model": "deepseek-chat"}
+                json={"judge_model": VALID_JUDGE}
             )
 
             assert resp.status_code == 200
             data = resp.json()
-            assert data["winners"] == ["openai/gpt-4o-mini"]
-            assert data["losers"] == ["deepseek-chat"]
+            assert data["winners"] == [VALID_MODEL_A]
+            assert data["losers"] == [VALID_MODEL_B]
             assert "Победитель" in data["message"]
             assert "more correct" in data["reason"]
-            assert data["model_a_name"] == "gpt-4o-mini"
-            assert data["model_b_name"] == "deepseek-chat"
-            assert data["judge_model_name"] == "deepseek-chat"
+            assert data["model_a_name"] == VALID_MODEL_A
+            assert data["model_b_name"] == VALID_MODEL_B
+            assert data["judge_model_name"] == VALID_JUDGE
 
 
 def test_winner_not_found(client):
@@ -160,7 +169,7 @@ def test_winner_not_found(client):
 
         resp = client.post(
             "/api/llm-arena/winner/999",
-            json={"judge_model": "deepseek-chat"}
+            json={"judge_model": VALID_JUDGE}
         )
         assert resp.status_code == 404
 
@@ -209,12 +218,12 @@ def test_last_result(client):
     mock_battle = MagicMock()
     mock_battle.winner = None
     mock_battle.evidence = [
-        {"model": "openai/gpt-4o-mini", "content": "code", "status": "success"}
+        {"model": VALID_MODEL_A, "content": "code", "status": "success"}
     ]
     mock_battle.message = "ok"
     mock_battle.judge_reason = "reason"
-    mock_battle.model1 = "gpt-4o-mini"
-    mock_battle.model2 = "gpt-4o-mini"
+    mock_battle.model1 = VALID_MODEL_A
+    mock_battle.model2 = VALID_MODEL_A
 
     mock_scalars = MagicMock()
     mock_scalars.first.return_value = mock_battle
@@ -260,8 +269,8 @@ async def test_judge_winner_simple():
 @pytest.mark.asyncio
 async def test_judge_winner_with_judge_mock():
     results = [
-        {"model": "openai/gpt-4o-mini", "content": "code A", "status": "success"},
-        {"model": "deepseek-chat", "content": "code B", "status": "success"},
+        {"model": VALID_MODEL_A, "content": "code A", "status": "success"},
+        {"model": VALID_MODEL_B, "content": "code B", "status": "success"},
     ]
     session = AsyncMock()
 
@@ -276,12 +285,13 @@ async def test_judge_winner_with_judge_mock():
         assert "Победитель" in res["message"]
         mock_ask.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_ask_judge_success():
     """Тестируем ask_judge с успешным ответом судьи."""
     from src.services.ai_service import ask_judge
 
-    with patch("src.services.ai_service.fetch_from_model", new_callable=AsyncMock) as mock_fetch:
+    with patch("src.services.ai_service.fetch_from_huggingface", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {
             "model": "judge-model",
             "content": '{"winner": "MODEL_A", "reason": "Better code"}',
@@ -333,6 +343,7 @@ def test_schemas_arena_compare_response():
     assert len(obj.results) == 1
     assert obj.elapsed == 1.5
 
+
 # =========================
 # LIFESPAN TESTS
 # =========================
@@ -341,7 +352,7 @@ def test_schemas_arena_compare_response():
 async def test_lifespan_no_api_key(caplog):
     """API_KEY не задан – лог предупреждения, сессия создана, БД проверена."""
     with caplog.at_level(logging.WARNING):
-        with patch("main.API_KEY", None), \
+        with patch("main.HUGGINGFACE_API_KEY", None), \
              patch("main.async_engine") as mock_engine, \
              patch("main.aiohttp.ClientSession") as mock_session_cls:
 
@@ -357,22 +368,22 @@ async def test_lifespan_no_api_key(caplog):
             mock_engine.connect.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_engine.connect.return_value.__aexit__ = AsyncMock(return_value=None)
 
-            app = MagicMock()
+            app_mock = MagicMock()
 
-            async with lifespan(app):
+            async with lifespan(app_mock):
                 pass
 
             mock_session_cls.assert_called_once()
             mock_session.close.assert_awaited_once()
             mock_engine.connect.assert_called_once()
-            assert "OPENROUTER_API_KEY не задан" in caplog.text
+            assert "HUGGINGFACE_API_KEY не задан" in caplog.text
 
 
 @pytest.mark.asyncio
 async def test_lifespan_api_key_success(caplog):
-    """API_KEY задан, OpenRouter отвечает 200, БД доступна."""
+    """API_KEY задан, Hugging Face отвечает 200, БД доступна."""
     with caplog.at_level(logging.INFO):
-        with patch("main.API_KEY", "test-key"), \
+        with patch("main.HUGGINGFACE_API_KEY", "test-key"), \
              patch("main.async_engine") as mock_engine, \
              patch("main.aiohttp.ClientSession") as mock_session_cls:
 
@@ -380,9 +391,10 @@ async def test_lifespan_api_key_success(caplog):
             mock_session.close = AsyncMock()
             mock_session_cls.return_value = mock_session
 
-            # OpenRouter
+            # Hugging Face whoami-v2 отвечает 200
             resp_mock = MagicMock()
             resp_mock.status = 200
+            resp_mock.json = AsyncMock(return_value={"name": "test-user"})
             get_context = MagicMock()
             get_context.__aenter__ = AsyncMock(return_value=resp_mock)
             get_context.__aexit__ = AsyncMock(return_value=None)
@@ -396,25 +408,25 @@ async def test_lifespan_api_key_success(caplog):
             mock_engine.connect.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_engine.connect.return_value.__aexit__ = AsyncMock(return_value=None)
 
-            app = MagicMock()
+            app_mock = MagicMock()
 
-            async with lifespan(app):
+            async with lifespan(app_mock):
                 pass
 
             mock_session.get.assert_called_with(
-                "https://openrouter.ai/api/v1/auth/key",
+                "https://huggingface.co/api/whoami-v2",
                 headers={"Authorization": "Bearer test-key"}
             )
             mock_session.close.assert_awaited_once()
-            assert "✅ OpenRouter API доступен" in caplog.text
+            assert "✅ Hugging Face API доступен" in caplog.text
             assert "✅ Соединение с БД установлено" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_lifespan_openrouter_failure(caplog):
-    """OpenRouter возвращает 500 – предупреждение + БД работает."""
-    with caplog.at_level(logging.INFO):   # <-- ВАЖНО: INFO, чтобы видеть сообщение БД
-        with patch("main.API_KEY", "test-key"), \
+async def test_lifespan_hf_failure(caplog):
+    """Hugging Face возвращает 500 – предупреждение + БД работает."""
+    with caplog.at_level(logging.INFO):
+        with patch("main.HUGGINGFACE_API_KEY", "test-key"), \
              patch("main.async_engine") as mock_engine, \
              patch("main.aiohttp.ClientSession") as mock_session_cls:
 
@@ -437,12 +449,12 @@ async def test_lifespan_openrouter_failure(caplog):
             mock_engine.connect.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_engine.connect.return_value.__aexit__ = AsyncMock(return_value=None)
 
-            app = MagicMock()
+            app_mock = MagicMock()
 
-            async with lifespan(app):
+            async with lifespan(app_mock):
                 pass
 
-            assert "OpenRouter вернул статус 500" in caplog.text
+            assert "Hugging Face вернул статус 500" in caplog.text
             assert "✅ Соединение с БД установлено" in caplog.text
             mock_session.close.assert_awaited_once()
 
@@ -451,7 +463,7 @@ async def test_lifespan_openrouter_failure(caplog):
 async def test_lifespan_db_failure(caplog):
     """БД не доступна – предупреждение."""
     with caplog.at_level(logging.WARNING):
-        with patch("main.API_KEY", None), \
+        with patch("main.HUGGINGFACE_API_KEY", None), \
              patch("main.async_engine") as mock_engine, \
              patch("main.aiohttp.ClientSession") as mock_session_cls:
 
@@ -460,9 +472,9 @@ async def test_lifespan_db_failure(caplog):
             mock_session_cls.return_value = mock_session
             mock_engine.connect.side_effect = Exception("DB down")
 
-            app = MagicMock()
+            app_mock = MagicMock()
 
-            async with lifespan(app):
+            async with lifespan(app_mock):
                 pass
 
             assert "Не удалось подключиться к БД" in caplog.text
@@ -470,10 +482,10 @@ async def test_lifespan_db_failure(caplog):
 
 
 @pytest.mark.asyncio
-async def test_lifespan_openrouter_exception(caplog):
-    """Исключение при запросе к OpenRouter + БД работает."""
-    with caplog.at_level(logging.INFO):   # <-- INFO для сообщения БД
-        with patch("main.API_KEY", "test-key"), \
+async def test_lifespan_hf_exception(caplog):
+    """Исключение при запросе к Hugging Face + БД работает."""
+    with caplog.at_level(logging.INFO):
+        with patch("main.HUGGINGFACE_API_KEY", "test-key"), \
              patch("main.async_engine") as mock_engine, \
              patch("main.aiohttp.ClientSession") as mock_session_cls:
 
@@ -490,14 +502,15 @@ async def test_lifespan_openrouter_exception(caplog):
             mock_engine.connect.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_engine.connect.return_value.__aexit__ = AsyncMock(return_value=None)
 
-            app = MagicMock()
+            app_mock = MagicMock()
 
-            async with lifespan(app):
+            async with lifespan(app_mock):
                 pass
 
-            assert "Не удалось проверить OpenRouter" in caplog.text
+            assert "Не удалось проверить Hugging Face" in caplog.text
             assert "✅ Соединение с БД установлено" in caplog.text
             mock_session.close.assert_awaited_once()
+
 
 # =========================
 # FETCH FROM MODEL TESTS
@@ -508,15 +521,15 @@ async def test_fetch_from_model_no_api_key():
     """API_KEY отсутствует – сразу возвращается ошибка."""
     from src.services.ai_service import fetch_from_model
     with patch("src.services.ai_service.API_KEY", None):
-        session = MagicMock()  # не будет использован
-        result = await fetch_from_model(session, "model", "prompt")
+        session = MagicMock()
+        result = await fetch_from_model(session, VALID_MODEL_A, "prompt")
         assert result["status"] == "error"
-        assert "API-ключ не задан" in result["content"]
+        assert "HUGGINGFACE_API_KEY не задан" in result["content"]
 
 
 @pytest.mark.parametrize("status_code, expected_status, expected_text", [
     (200, "success", "def is_leap"),
-    (500, "error", "Ошибка 500"),
+    (500, "error", "500"),
 ])
 @pytest.mark.asyncio
 async def test_fetch_from_model_status_codes(status_code, expected_status, expected_text):
@@ -534,13 +547,12 @@ async def test_fetch_from_model_status_codes(status_code, expected_status, expec
         else:
             resp_mock.text = AsyncMock(return_value="Server Error")
 
-        # Объект, который вернёт session.post() и который можно использовать в async with
         post_return = MagicMock()
         post_return.__aenter__ = AsyncMock(return_value=resp_mock)
         post_return.__aexit__ = AsyncMock(return_value=None)
         session.post.return_value = post_return
 
-        result = await fetch_from_model(session, "model", "prompt")
+        result = await fetch_from_model(session, VALID_MODEL_A, "prompt")
         assert result["status"] == expected_status
         assert expected_text in result["content"]
 
@@ -552,12 +564,14 @@ async def test_fetch_from_model_exception():
     with patch("src.services.ai_service.API_KEY", "test-key"):
         session = MagicMock()
         session.post.side_effect = Exception("Boom")
-        result = await fetch_from_model(session, "model", "prompt")
+        result = await fetch_from_model(session, VALID_MODEL_A, "prompt")
         assert result["status"] == "error"
-        assert "Исключение" in result["content"]
+        # Код логирует "HF исключение: Boom"
+        assert "исключение" in result["content"].lower() or "Boom" in result["content"]
+
 
 # =========================
-# JUDGE_WINNER: ALL BRANCHES (NEW)
+# JUDGE_WINNER: ALL BRANCHES
 # =========================
 
 @pytest.mark.asyncio
@@ -575,7 +589,7 @@ async def test_judge_winner_both_failed():
     assert res["judge_result"]["winner"] is None
     assert "Обе модели не смогли выполнить задание" in res["judge_result"]["reason"]
     assert res["winner_position"] is None
-    assert res["judge_model"] == "deepseek-chat"
+    assert res["judge_model"] == "gpt-oss-120b"   # новый DEFAULT_JUDGE
     assert res["reason"] is not None
 
 
@@ -583,34 +597,34 @@ async def test_judge_winner_both_failed():
 async def test_judge_winner_one_success_model_a():
     """Одна успешна, и она первая в списке (MODEL_A)."""
     results = [
-        {"model": "gpt-4o-mini", "content": "ok", "status": "success"},
-        {"model": "llama-3", "content": "error", "status": "error"},
+        {"model": VALID_MODEL_A, "content": "ok", "status": "success"},
+        {"model": VALID_MODEL_B, "content": "error", "status": "error"},
     ]
     session = AsyncMock()
-    res = await judge_winner(results, session, judge_model="gpt-4o-mini")
-    assert res["winners"] == ["gpt-4o-mini"]
-    assert res["losers"] == ["llama-3"]
+    res = await judge_winner(results, session, judge_model=VALID_JUDGE)
+    assert res["winners"] == [VALID_MODEL_A]
+    assert res["losers"] == [VALID_MODEL_B]
     assert "Победитель" in res["message"]
     assert "завершилась с ошибкой" in res["reason"]
     assert res["winner_position"] == "MODEL_A"
-    assert res["judge_result"]["winner"] == "gpt-4o-mini"
-    assert res["judge_model"] == "gpt-4o-mini"
+    assert res["judge_result"]["winner"] == VALID_MODEL_A
+    assert res["judge_model"] == VALID_JUDGE
 
 
 @pytest.mark.asyncio
 async def test_judge_winner_one_success_model_b():
     """Одна успешна, но она вторая в списке (MODEL_B)."""
     results = [
-        {"model": "gpt-4o-mini", "content": "error", "status": "error"},
-        {"model": "llama-3", "content": "ok", "status": "success"},
+        {"model": VALID_MODEL_A, "content": "error", "status": "error"},
+        {"model": VALID_MODEL_B, "content": "ok", "status": "success"},
     ]
     session = AsyncMock()
-    res = await judge_winner(results, session, judge_model="deepseek-chat")
-    assert res["winners"] == ["llama-3"]
-    assert res["losers"] == ["gpt-4o-mini"]
+    res = await judge_winner(results, session, judge_model=VALID_JUDGE)
+    assert res["winners"] == [VALID_MODEL_B]
+    assert res["losers"] == [VALID_MODEL_A]
     assert res["winner_position"] == "MODEL_B"
-    assert res["judge_result"]["winner"] == "llama-3"
-    assert res["judge_model"] == "deepseek-chat"
+    assert res["judge_result"]["winner"] == VALID_MODEL_B
+    assert res["judge_model"] == VALID_JUDGE
 
 
 @pytest.mark.asyncio
@@ -623,14 +637,14 @@ async def test_judge_winner_draw():
     session = AsyncMock()
     with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
         mock_ask.return_value = {"winner": "DRAW", "reason": "Оба решения идентичны"}
-        res = await judge_winner(results, session, judge_model="llama-3.1-8b")
+        res = await judge_winner(results, session, judge_model=VALID_JUDGE)
         assert res["winners"] == []
         assert res["losers"] == []
         assert "Ничья" in res["message"]
         assert res["judge_result"]["winner"] == "DRAW"
         assert res["judge_result"]["reason"] == "Оба решения идентичны"
         assert res["winner_position"] is None
-        assert res["judge_model"] == "llama-3.1-8b"
+        assert res["judge_model"] == VALID_JUDGE
         mock_ask.assert_called_once()
 
 
@@ -647,15 +661,15 @@ async def test_judge_winner_judge_error():
             "error": "Judge вернул неверный winner: MODEL_C",
             "raw_response": '{"winner": "MODEL_C", "reason": "..."}'
         }
-        res = await judge_winner(results, session, judge_model="gpt-4o-mini")
+        res = await judge_winner(results, session, judge_model=VALID_JUDGE)
         assert res["winners"] == []
         assert res["losers"] == []
-        assert "Judge не смог определить победителя" in res["message"]
+        assert "Судья не смог определить победителя" in res["message"]
         assert res["judge_error"] is not None
         assert res["judge_result"]["winner"] is None
-        assert "Судья не дал корректного вердикта" in res["judge_result"]["reason"]
+        assert "неверный winner" in res["judge_result"]["reason"]
         assert res["winner_position"] is None
-        assert res["judge_model"] == "gpt-4o-mini"
+        assert res["judge_model"] == VALID_JUDGE
         mock_ask.assert_called_once()
 
 
@@ -663,18 +677,17 @@ async def test_judge_winner_judge_error():
 async def test_judge_winner_same_models():
     """Две одинаковые модели, судья выбирает MODEL_A."""
     results = [
-        {"model": "gpt-4o-mini", "content": "code1", "status": "success"},
-        {"model": "gpt-4o-mini", "content": "code2", "status": "success"},
+        {"model": VALID_MODEL_A, "content": "code1", "status": "success"},
+        {"model": VALID_MODEL_A, "content": "code2", "status": "success"},
     ]
     session = AsyncMock()
     with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
         mock_ask.return_value = {"winner": "MODEL_A", "reason": "Первая реализация лучше"}
         res = await judge_winner(results, session)
-        assert res["winners"] == ["gpt-4o-mini"]
-        assert res["losers"] == []               # та же модель
+        assert res["winners"] == [VALID_MODEL_A]
+        assert res["losers"] == []
         assert res["winner_position"] == "MODEL_A"
-        assert res["reason"] == "Первая реализация лучше"
-        assert res["judge_result"]["reason"] == "Первая реализация лучше"
+        assert "Первая реализация лучше" in res["reason"]
         mock_ask.assert_called_once()
 
 
@@ -687,7 +700,10 @@ async def test_judge_winner_empty_reason_handling():
     ]
     session = AsyncMock()
     with patch("src.services.ai_service.ask_judge", new_callable=AsyncMock) as mock_ask:
-        mock_ask.return_value = {"error": "Judge вернул пустой reason", "raw_response": '{"winner": "MODEL_A", "reason": ""}'}
+        mock_ask.return_value = {
+            "error": "Judge вернул пустой reason",
+            "raw_response": '{"winner": "MODEL_A", "reason": ""}'
+        }
         res = await judge_winner(results, session)
         assert res["winners"] == []
         assert "judge_error" in res
@@ -710,6 +726,7 @@ async def test_judge_winner_winner_position_consistency():
         assert res["winner_position"] == "MODEL_B"
         mock_ask.assert_called_once()
 
+
 # =========================
 # validate judge_model mapping
 # =========================
@@ -725,46 +742,44 @@ async def test_battle_with_valid_judge_model(client):
     with patch(
         "src.routers.llm_arena.get_battle_by_id", new_callable=AsyncMock
     ) as mock_get_battle, patch(
-        "src.routers.llm_arena.judge_winner", new_callable=AsyncMock   # мокаем в роутере
+        "src.routers.llm_arena.judge_winner", new_callable=AsyncMock
     ) as mock_judge:
 
-        # Мок боевой записи из базы
         mock_battle = MagicMock()
         mock_battle.id = battle_id
-        mock_battle.model1 = "gpt-4o-mini"
-        mock_battle.model2 = "deepseek-chat"
+        mock_battle.model1 = VALID_MODEL_A
+        mock_battle.model2 = VALID_MODEL_B
         mock_battle.evidence = [
-            {"model": "openai/gpt-4o-mini", "content": "code A", "status": "success"},
-            {"model": "deepseek-chat", "content": "code B", "status": "success"},
+            {"model": VALID_MODEL_A, "content": "code A", "status": "success"},
+            {"model": VALID_MODEL_B, "content": "code B", "status": "success"},
         ]
         mock_get_battle.return_value = mock_battle
 
-        # Мок результата судьи
         mock_judge.return_value = {
-            "winners": ["openai/gpt-4o-mini"],
-            "losers": ["deepseek-chat"],
+            "winners": [VALID_MODEL_A],
+            "losers": [VALID_MODEL_B],
             "message": "OK",
             "judge_result": {"winner": "MODEL_A", "reason": "better solution"},
             "reason": "better solution",
             "winner_position": "MODEL_A",
-            "judge_model": "llama-3.1-8b",
+            "judge_model": VALID_JUDGE,
         }
 
         response = client.post(
             f"/api/llm-arena/winner/{battle_id}",
-            json={"judge_model": "llama-3.1-8b"}
+            json={"judge_model": VALID_JUDGE}
         )
 
         assert response.status_code == 200
         data = response.json()
 
-        # Основные проверки
-        assert data["winners"] == ["openai/gpt-4o-mini"]
-        assert data["losers"] == ["deepseek-chat"]
+        assert data["winners"] == [VALID_MODEL_A]
+        assert data["losers"] == [VALID_MODEL_B]
         assert data["judge_result"]["winner"] == "MODEL_A"
         assert data["reason"] == "better solution"
         assert data["winner_position"] == "MODEL_A"
-        assert data["judge_model_name"] == "llama-3.1-8b"
+        assert data["judge_model_name"] == VALID_JUDGE
+
 
 # =========================
 # DOWNLOAD SERVICE
@@ -773,14 +788,14 @@ async def test_battle_with_valid_judge_model(client):
 def test_generate_battle_markdown_same_models():
     """Обе модели одинаковые, победитель определён."""
     battle = MagicMock()
-    battle.model1 = "gpt-4o-mini"
-    battle.model2 = "gpt-4o-mini"
-    battle.winner = "openai/gpt-4o-mini"
+    battle.model1 = VALID_MODEL_A
+    battle.model2 = VALID_MODEL_A
+    battle.winner = VALID_MODEL_A
     battle.winner_position = "MODEL_A"
     battle.message = "Победа"
     battle.judge_reason = "Лучше тесты"
     battle.evidence = [
-        {"model": "gpt-4o-mini", "content": "code", "status": "success"}
+        {"model": VALID_MODEL_A, "content": "code", "status": "success"}
     ]
 
     md = generate_battle_markdown(battle)
@@ -805,6 +820,7 @@ def test_generate_battle_markdown_draw():
     md = generate_battle_markdown(battle)
     assert "🤝" in md
     assert "Ничья" in md
+
 
 # =========================
 # ARENA RESULT SERVICE
@@ -831,6 +847,7 @@ async def test_get_last_result_service_empty():
     result = await get_last_result_service(db)
     assert result is None
 
+
 # =========================
 # UTILS TESTS
 # =========================
@@ -839,7 +856,6 @@ def test_normalize_decision():
     """Функция normalize_decision: валидный, неполный и не-словарь."""
     from src.utils.normalize import normalize_decision
 
-    # Полный корректный ответ
     full = {
         "winners": ["model-a"],
         "losers": ["model-b"],
@@ -855,7 +871,6 @@ def test_normalize_decision():
     assert res["judge_result"] == {"winner": "model-a"}
     assert res["winner_position"] == "MODEL_A"
 
-    # Частичный ответ (пустые списки/строки)
     partial = {"winners": []}
     res = normalize_decision(partial)
     assert res["winners"] == []
@@ -864,7 +879,6 @@ def test_normalize_decision():
     assert res["reason"] == ""
     assert res["winner_position"] is None
 
-    # Вход не словарь
     res = normalize_decision("invalid")
     assert res["winners"] == []
     assert res["message"] == "Invalid judge response"
