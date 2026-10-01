@@ -1,19 +1,26 @@
 # src/routers/llm_arena.py
 import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.database.database import get_async_db
 from src.models.db_models import ArenaResult
-from src.models.models import BattleHistoryResponse, CompareRequest, WinnerResponse, FullBattleRequest
-from src.schemas.schemas import JudgeWinnerRequest
+from src.models.models import BattleHistoryResponse, FullBattleRequest, WinnerResponse
+from src.schemas.schemas import CompareRequest, JudgeWinnerRequest
 from src.services.ai_service import (
-    AVAILABLE_MODELS, DEFAULT_MODELS, SYSTEM_PROMPT, JUDGE_PROMPT_TEMPLATE,
-    judge_winner, run_arena_comparison, JUDGE_MODEL,
+    AVAILABLE_MODELS,
+    DEFAULT_MODELS,
+    JUDGE_MODEL,
+    JUDGE_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT,
+    judge_winner,
+    run_arena_comparison,
 )
-from src.services.arena_result import get_last_result_service, get_battle_by_id
+from src.services.arena_result import get_battle_by_id, get_last_result_service
 from src.services.download_service import generate_battle_markdown
 from src.utils.normalize import normalize_decision, normalize_evidence
 
@@ -21,7 +28,7 @@ logger = logging.getLogger("llm_arena_router")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -54,9 +61,7 @@ async def get_judge_prompt():
 @router.post("/compare")
 @limiter.limit("6/minute")
 async def run_comparison(
-        request: Request,
-        payload: CompareRequest,
-        db: AsyncSession = Depends(get_async_db)
+    request: Request, payload: CompareRequest, db: AsyncSession = Depends(get_async_db)
 ):
     session = request.app.state.http_session
     models = payload.models or DEFAULT_MODELS
@@ -72,9 +77,11 @@ async def run_comparison(
         raise HTTPException(500, "Внутренняя ошибка сервера") from e
 
     battle = ArenaResult(
-        model1=models[0], model2=models[1],
-        winner=None, message="Ожидает решения судьи",
-        evidence=result.get("results", [])
+        model1=models[0],
+        model2=models[1],
+        winner=None,
+        message="Ожидает решения судьи",
+        evidence=result.get("results", []),
     )
     db.add(battle)
     await db.commit()
@@ -91,10 +98,10 @@ async def run_comparison(
 @router.post("/winner/{battle_id}", response_model=WinnerResponse)
 @limiter.limit("10/minute")
 async def declare_winner(
-        battle_id: int,
-        payload: JudgeWinnerRequest,
-        request: Request,
-        db: AsyncSession = Depends(get_async_db)
+    battle_id: int,
+    payload: JudgeWinnerRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
 ):
     battle = await get_battle_by_id(db, battle_id)
     if not battle:
@@ -161,7 +168,7 @@ async def download_result(battle_id: int, db: AsyncSession = Depends(get_async_d
     return Response(
         content=markdown,
         media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename=battle_{battle_id}_result.md"}
+        headers={"Content-Disposition": f"attachment; filename=battle_{battle_id}_result.md"},
     )
 
 
@@ -176,16 +183,14 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
     return Response(
         content=markdown,
         media_type="text/markdown",
-        headers={"Content-Disposition": "attachment; filename=last_result.md"}
+        headers={"Content-Disposition": "attachment; filename=last_result.md"},
     )
 
 
 @router.post("/battle", response_model=WinnerResponse)
 @limiter.limit("5/minute")
 async def full_battle(
-        payload: FullBattleRequest,
-        request: Request,
-        db: AsyncSession = Depends(get_async_db)
+    payload: FullBattleRequest, request: Request, db: AsyncSession = Depends(get_async_db)
 ):
     session = request.app.state.http_session
     models = payload.models
@@ -196,9 +201,7 @@ async def full_battle(
     logger.info("battle: models=%s judge=%s", models, payload.judge_model)
 
     compare_result = await run_arena_comparison(
-        models=models,
-        session=session,
-        prompt=payload.prompt
+        models=models, session=session, prompt=payload.prompt
     )
     compare_result = compare_result or {}
 
@@ -210,8 +213,7 @@ async def full_battle(
     elapsed = compare_result.get("elapsed", 0)
 
     battle = ArenaResult(
-        model1=models[0], model2=models[1], winner=None,
-        message="Pending judge", evidence=results
+        model1=models[0], model2=models[1], winner=None, message="Pending judge", evidence=results
     )
     db.add(battle)
     await db.commit()
@@ -232,11 +234,13 @@ async def full_battle(
     battle.winner_position = decision.get("winner_position")
     await db.commit()
 
-    decision.update({
-        "arena_result_id": battle.id,
-        "elapsed": elapsed,
-        "model_a_name": battle.model1,
-        "model_b_name": battle.model2,
-        "judge_model_name": payload.judge_model,
-    })
+    decision.update(
+        {
+            "arena_result_id": battle.id,
+            "elapsed": elapsed,
+            "model_a_name": battle.model1,
+            "model_b_name": battle.model2,
+            "judge_model_name": payload.judge_model,
+        }
+    )
     return WinnerResponse(**decision)

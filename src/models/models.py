@@ -1,12 +1,13 @@
 # src/models/models.py
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-
-class CompareRequest(BaseModel):
-    models: list[str] | None = None
-    prompt: str | None = None
+# ── УДАЛЕНО: CompareRequest (переехал в schemas.py) ──
+# class CompareRequest(BaseModel):
+#     models: list[str] | None = None
+#     prompt: str | None = None
 
 
 class ModelEvidence(BaseModel):
@@ -43,7 +44,7 @@ class BattleHistoryResponse(BaseModel):
 
 class FullBattleRequest(BaseModel):
     models: list[str]
-    judge_model: str
+    judge_model: str = "gpt-oss-120b"   # ← заодно дефолт на актуальный
     prompt: str | None = None
     judge_prompt: str | None = None
 

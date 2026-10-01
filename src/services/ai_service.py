@@ -18,7 +18,7 @@ logger = logging.getLogger("ai_service")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -46,83 +46,81 @@ AVAILABLE_MODELS = {
         "provider": "huggingface",
         "provider_name": "novita",
         "model_id": "meta-llama/Llama-3.1-8B-Instruct",
-        "display_name": "🦙 Llama 3.1 8B"
+        "display_name": "🦙 Llama 3.1 8B",
     },
     "qwen-coder-7b": {
         "provider": "huggingface",
-        "provider_name": "nscale",     # 0.01 / 0.03
+        "provider_name": "nscale",  # 0.01 / 0.03
         "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "display_name": "🐍 Qwen Coder 7B"
+        "display_name": "🐍 Qwen Coder 7B",
     },
     "qwen3-4b": {
         "provider": "huggingface",
-        "provider_name": "nscale",     # 0.01 / 0.03
+        "provider_name": "nscale",  # 0.01 / 0.03
         "model_id": "Qwen/Qwen3-4B-Instruct-2507",
-        "display_name": "🌱 Qwen3 4B"
+        "display_name": "🌱 Qwen3 4B",
     },
     "gemma-3-4b": {
         "provider": "huggingface",
         "provider_name": "deepinfra",  # 0.05 / 0.10
         "model_id": "google/gemma-3-4b-it",
-        "display_name": "💎 Gemma 3 4B"
+        "display_name": "💎 Gemma 3 4B",
     },
-
     # ── Средние: лучше по качеству ──
     "qwen3-14b": {
         "provider": "huggingface",
-        "provider_name": "nscale",     # 0.07 / 0.20
+        "provider_name": "nscale",  # 0.07 / 0.20
         "model_id": "Qwen/Qwen3-14B",
-        "display_name": "🌊 Qwen3 14B"
+        "display_name": "🌊 Qwen3 14B",
     },
     "gpt-oss-20b": {
         "provider": "huggingface",
         "provider_name": "deepinfra",  # 0.03 / 0.14
         "model_id": "openai/gpt-oss-20b",
-        "display_name": "🤖 gpt-oss 20B"
+        "display_name": "🤖 gpt-oss 20B",
     },
     "phi-4": {
         "provider": "huggingface",
         "provider_name": "deepinfra",  # 0.07 / 0.14
         "model_id": "microsoft/phi-4",
-        "display_name": "🧪 Phi-4"
+        "display_name": "🧪 Phi-4",
     },
-
     # ── Legacy aliases — чтобы не ломать старые тесты и клиентов ──
     "mistral-7b": {
         "provider": "huggingface",
         "provider_name": "novita",
         "model_id": "meta-llama/Llama-3.1-8B-Instruct",
-        "display_name": "🦙 Llama 3.1 8B"
+        "display_name": "🦙 Llama 3.1 8B",
     },
     "zephyr-7b": {
         "provider": "huggingface",
         "provider_name": "nscale",
         "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "display_name": "🐍 Qwen Coder 7B"
+        "display_name": "🐍 Qwen Coder 7B",
     },
     "mistral-nemo": {
         "provider": "huggingface",
         "provider_name": "nscale",
         "model_id": "Qwen/Qwen3-14B",
-        "display_name": "🌊 Qwen3 14B"
+        "display_name": "🌊 Qwen3 14B",
     },
     "gpt-4o-mini": {
         "provider": "huggingface",
         "provider_name": "novita",
         "model_id": "meta-llama/Llama-3.1-8B-Instruct",
-        "display_name": "🦙 Llama 3.1 8B"
+        "display_name": "🦙 Llama 3.1 8B",
     },
     "deepseek-chat": {
         "provider": "huggingface",
         "provider_name": "nscale",
         "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "display_name": "🐍 Qwen Coder 7B"
+        "display_name": "🐍 Qwen Coder 7B",
     },
     "qwen": {
         "provider": "huggingface",
         "provider_name": "nscale",
         "model_id": "Qwen/Qwen3-14B",
-        "display_name": "🌊 Qwen3 14B"
+        "display_name": "🌊 Qwen3 14B",
     },
 }
 
@@ -133,51 +131,50 @@ JUDGE_MODEL = {
         "provider": "huggingface",
         "provider_name": "deepinfra",  # 0.037 / 0.17
         "model_id": "openai/gpt-oss-120b",
-        "display_name": "⚖️ gpt-oss 120B (Judge)"
+        "display_name": "⚖️ gpt-oss 120B (Judge)",
     },
     "llama-3.3-70b": {
         "provider": "huggingface",
-        "provider_name": "novita",     # 0.135 / 0.4
+        "provider_name": "novita",  # 0.135 / 0.4
         "model_id": "meta-llama/Llama-3.3-70B-Instruct",
-        "display_name": "⚖️ Llama 3.3 70B (Judge)"
+        "display_name": "⚖️ Llama 3.3 70B (Judge)",
     },
     "qwen3-32b": {
         "provider": "huggingface",
-        "provider_name": "nscale",     # 0.08 / 0.25
+        "provider_name": "nscale",  # 0.08 / 0.25
         "model_id": "Qwen/Qwen3-32B",
-        "display_name": "⚖️ Qwen3 32B (Judge)"
+        "display_name": "⚖️ Qwen3 32B (Judge)",
     },
-
     # ── Legacy aliases для судьи ──
     "mistral-7b": {
         "provider": "huggingface",
         "provider_name": "deepinfra",
         "model_id": "openai/gpt-oss-20b",
-        "display_name": "⚖️ gpt-oss 20B (Judge)"
+        "display_name": "⚖️ gpt-oss 20B (Judge)",
     },
     "zephyr-7b": {
         "provider": "huggingface",
         "provider_name": "nscale",
         "model_id": "Qwen/Qwen3-32B",
-        "display_name": "⚖️ Qwen3 32B (Judge)"
+        "display_name": "⚖️ Qwen3 32B (Judge)",
     },
     "mistral-nemo": {
         "provider": "huggingface",
         "provider_name": "deepinfra",
         "model_id": "openai/gpt-oss-120b",
-        "display_name": "⚖️ gpt-oss 120B (Judge)"
+        "display_name": "⚖️ gpt-oss 120B (Judge)",
     },
     "deepseek-chat": {
         "provider": "huggingface",
         "provider_name": "nscale",
         "model_id": "Qwen/Qwen3-32B",
-        "display_name": "⚖️ Qwen3 32B (Judge)"
+        "display_name": "⚖️ Qwen3 32B (Judge)",
     },
     "gpt-4o-mini": {
         "provider": "huggingface",
         "provider_name": "deepinfra",
         "model_id": "openai/gpt-oss-20b",
-        "display_name": "⚖️ gpt-oss 20B (Judge)"
+        "display_name": "⚖️ gpt-oss 20B (Judge)",
     },
 }
 
@@ -200,6 +197,7 @@ JUDGE_PROMPT_TEMPLATE = load_prompt("judge_prompt.md")
 # ════════════════════════════════════════════════════════════════
 # HUGGING FACE INFERENCE (OpenAI-совместимый роутер)
 # ════════════════════════════════════════════════════════════════
+
 
 async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max_tokens=2000):
     """
@@ -225,10 +223,8 @@ async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max
         "Content-Type": "application/json",
     }
     payload = {
-        "model": model_id,                 # "author/Model:provider"
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "model": model_id,  # "author/Model:provider"
+        "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
@@ -282,6 +278,7 @@ async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max
 # УНИВЕРСАЛЬНЫЙ ФЕТЧЕР
 # ════════════════════════════════════════════════════════════════
 
+
 async def fetch_from_model(session, model_key, prompt, temperature=0.0, max_tokens=2000):
     """
     Универсальный фетчер. Находит модель по ключу в AVAILABLE_MODELS,
@@ -300,9 +297,7 @@ async def fetch_from_model(session, model_key, prompt, temperature=0.0, max_toke
     provider = config.get("provider_name")
     full_model_id = f"{model_id}:{provider}" if provider else model_id
 
-    return await fetch_from_huggingface(
-        session, full_model_id, prompt, temperature, max_tokens
-    )
+    return await fetch_from_huggingface(session, full_model_id, prompt, temperature, max_tokens)
 
 
 async def compare_models(models, session, custom_prompt=None):
@@ -347,7 +342,7 @@ def extract_json(content: str) -> dict:
     start = content.find("{")
     end = content.rfind("}")
     if start != -1 and end != -1 and end > start:
-        json_str = content[start:end + 1]
+        json_str = content[start : end + 1]
         try:
             obj = json.loads(json_str)
             if "winner" in obj and "reason" in obj:
@@ -358,8 +353,30 @@ def extract_json(content: str) -> dict:
     raise ValueError("JSON объект не найден")
 
 
-async def ask_judge(session, model1, response1, model2, response2, judge_model_key=None):
-    """Отправляет ответы двух моделей судье."""
+# Нужно, чтоб промт содержал все плейсхолдеры, чтоб понимать - кто победил !
+REQUIRED_PLACEHOLDERS = (
+    "{model_a_name}",
+    "{response_a}",
+    "{model_b_name}",
+    "{response_b}",
+)
+
+
+async def ask_judge(
+    session,
+    model1,
+    response1,
+    model2,
+    response2,
+    judge_model_key=None,
+    judge_prompt: str | None = None,
+):
+    """Отправляет ответы двух моделей судье.
+
+    Если передан judge_prompt — используется он вместо JUDGE_PROMPT_TEMPLATE.
+    Кастомный промпт обязан содержать все четыре плейсхолдера:
+    {model_a_name}, {response_a}, {model_b_name}, {response_b}.
+    """
     if judge_model_key is None:
         judge_model_key = DEFAULT_JUDGE
 
@@ -367,18 +384,41 @@ async def ask_judge(session, model1, response1, model2, response2, judge_model_k
         logger.warning("Судья %s не найден, используем default", judge_model_key)
         judge_model_key = DEFAULT_JUDGE
 
+    # ── ВАЛИДАЦИЯ КАСТОМНОГО ПРОМПТА ──
+    if judge_prompt is not None:
+        # Пустая строка или строка из пробелов → приравниваем к «не задан»
+        if not judge_prompt.strip():
+            logger.warning("⚠️ judge_prompt пустой, используем шаблон по умолчанию")
+            judge_prompt = None
+        else:
+            missing = [ph for ph in REQUIRED_PLACEHOLDERS if ph not in judge_prompt]
+            if missing:
+                logger.error("❌ judge_prompt не содержит плейсхолдеры: %s", missing)
+                return {
+                    "error": (
+                        "Кастомный judge_prompt не содержит обязательные плейсхолдеры: "
+                        + ", ".join(missing)
+                    )
+                }
+
+    # ── ЭКРАНИРОВАНИЕ ──
     safe_resp1 = response1.replace("{", "{{").replace("}", "}}")
     safe_resp2 = response2.replace("{", "{{").replace("}", "}}")
-    prompt = JUDGE_PROMPT_TEMPLATE.format(
-        model_a_name=model1,
-        response_a=safe_resp1,
-        model_b_name=model2,
-        response_b=safe_resp2,
-    )
+
+    template = judge_prompt if judge_prompt else JUDGE_PROMPT_TEMPLATE
+    try:
+        prompt = template.format(
+            model_a_name=model1,
+            response_a=safe_resp1,
+            model_b_name=model2,
+            response_b=safe_resp2,
+        )
+    except KeyError as e:
+        logger.error("❌ Кастомный judge_prompt содержит неизвестный плейсхолдер %s", e)
+        return {"error": f"Кастомный judge_prompt содержит неизвестный плейсхолдер {e}"}
 
     logger.info("⚖️ Отправка запроса судье %s", judge_model_key)
 
-    # Резолвим судью через JUDGE_MODEL и вызываем роутер напрямую
     judge_config = JUDGE_MODEL[judge_model_key]
     judge_model_id = judge_config["model_id"]
     judge_provider = judge_config.get("provider_name")
@@ -413,8 +453,12 @@ async def ask_judge(session, model1, response1, model2, response2, judge_model_k
     return {"winner": winner, "reason": reason}
 
 
-async def judge_winner(results, session, judge_model=None):
-    """Определяет победителя на основе ответов моделей."""
+async def judge_winner(results, session, judge_model=None, judge_prompt: str | None = None):
+    """Определяет победителя на основе ответов моделей.
+
+    judge_prompt — опциональный кастомный промпт для судьи.
+    Если None, используется JUDGE_PROMPT_TEMPLATE.
+    """
     if judge_model is None:
         judge_model = DEFAULT_JUDGE
 
@@ -440,7 +484,7 @@ async def judge_winner(results, session, judge_model=None):
         loser_model = failed_results[0]["model"] if failed_results else "неизвестная модель"
         winner_pos = "MODEL_A" if winner["model"] == results[0]["model"] else "MODEL_B"
         reason_text = f"Модель {loser_model} завершилась с ошибкой, побеждает {winner['model']}."
-        logger.info("✅ Одна успешная модель: %s", winner['model'])
+        logger.info("✅ Одна успешная модель: %s", winner["model"])
         return {
             "winners": [winner["model"]],
             "losers": [r["model"] for r in failed_results],
@@ -464,7 +508,13 @@ async def judge_winner(results, session, judge_model=None):
         judge_model1, judge_model2 = model1, model2
 
     judge_result = await ask_judge(
-        session, judge_model1, response1, judge_model2, response2, judge_model
+        session,
+        judge_model1,
+        response1,
+        judge_model2,
+        response2,
+        judge_model,
+        judge_prompt=judge_prompt,  # ← пробрасываем дальше
     )
 
     if "error" in judge_result:
@@ -523,9 +573,9 @@ async def judge_winner(results, session, judge_model=None):
 
 
 async def run_arena_comparison(
-        models: list[str],
-        session: aiohttp.ClientSession,
-        prompt: str = None,
+    models: list[str],
+    session: aiohttp.ClientSession,
+    prompt: str = None,
 ) -> dict:
     """Запускает модели без судьи. Возвращает результаты и время."""
     start = time.time()
