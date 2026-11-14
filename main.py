@@ -80,8 +80,15 @@ app.mount("/static", StaticFiles(directory="src/static"), name="static")
 app.include_router(llm_arena.router)
 
 
+# @app.get("/", response_class=HTMLResponse)
+# async def index(request: Request):
+#     return templates.TemplateResponse(request=request, name="index.html")
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html")
+    return templates.TemplateResponse(
+        request=request,
+        name="index_ollama.html",
+    )
 
 # uvicorn main:app --port 8000
