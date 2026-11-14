@@ -1,5 +1,4 @@
 # src/services/ai_service.py
-
 import asyncio
 import json
 import logging
@@ -7,179 +6,197 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 from dotenv import load_dotenv
 
 from src.utils.prettify_model_name import prettify_model_name
 
-# Настройка логгера
+"""LLM Arena service backed by a local Ollama server.
+
+The public result contract is intentionally kept compatible with the existing
+application: every model attempt returns {model, content, status}. A failed
+model attempt is valid Arena evidence and must not prevent the battle record
+from being stored.
+"""
+
+# ---------------------------------------------------------------------------
+# Logging and project configuration
+# ---------------------------------------------------------------------------
+
 logger = logging.getLogger("ai_service")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
-# ════════════════════════════════════════════════════════════════
-# API ключи
-# ════════════════════════════════════════════════════════════════
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-API_KEY = HUGGINGFACE_API_KEY  # для обратной совместимости
+# ---------------------------------------------------------------------------
+# Ollama configuration
+# ---------------------------------------------------------------------------
 
-# Базовый URL OpenAI-совместимого роутера HF
-HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
+OLLAMA_BASE_URL = os.getenv(
+    "OLLAMA_BASE_URL", "http://127.0.0.1:11434"
+).rstrip("/")
+OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
 
 
-# ════════════════════════════════════════════════════════════════
-# ДОСТУПНЫЕ МОДЕЛИ И ИХ КОНФИГУРАЦИЯ
-# Только модели, доступные в HF Router на 2026-10-01
-# Цены указаны за 1M токенов (input / output) в USD
-# ════════════════════════════════════════════════════════════════
+def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        logger.warning("Некорректное значение %s=%r; используется %s", name, raw_value, default)
+        return default
+    return max(minimum, value)
 
-AVAILABLE_MODELS = {
-    # ── Малыши: дёшево и быстро ──
-    "llama-3.1-8b": {
-        "provider": "huggingface",
-        "provider_name": "novita",
-        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
-        "display_name": "🦙 Llama 3.1 8B",
-    },
-    "qwen-coder-7b": {
-        "provider": "huggingface",
-        "provider_name": "nscale",  # 0.01 / 0.03
-        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "display_name": "🐍 Qwen Coder 7B",
-    },
+
+def _read_float_env(name: str, default: float, minimum: float = 1.0) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning("Некорректное значение %s=%r; используется %s", name, raw_value, default)
+        return default
+    return max(minimum, value)
+
+
+def _read_bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+OLLAMA_NUM_CTX = _read_int_env("OLLAMA_NUM_CTX", 4096, minimum=512)
+OLLAMA_REQUEST_TIMEOUT = _read_float_env("OLLAMA_REQUEST_TIMEOUT", 300.0)
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "0")
+OLLAMA_THINK = _read_bool_env("OLLAMA_THINK", True)
+
+# Serialize local inference requests. This is important on the current
+# machine: it has 8 GB VRAM, so Arena requests should not load several models
+# into GPU memory concurrently.
+OLLAMA_REQUEST_SEMAPHORE = asyncio.Semaphore(
+    _read_int_env("OLLAMA_MAX_CONCURRENT_REQUESTS", 1, minimum=1)
+)
+
+# Exact model tags verified/used with the local Ollama installation.
+QWEN3_4B_MODEL_ID = os.getenv(
+    "OLLAMA_MODEL_QWEN3_4B",
+    "hf.co/Qwen/Qwen3-4B-GGUF:Q4_K_M",
+)
+QWEN3_8B_MODEL_ID = os.getenv(
+    "OLLAMA_MODEL_QWEN3_8B",
+    "hf.co/Qwen/Qwen3-8B-GGUF:Q4_K_M",
+)
+
+# ---------------------------------------------------------------------------
+# Available Arena participant models
+# ---------------------------------------------------------------------------
+
+AVAILABLE_MODELS: dict[str, dict[str, Any]] = {
     "qwen3-4b": {
-        "provider": "huggingface",
-        "provider_name": "nscale",  # 0.01 / 0.03
-        "model_id": "Qwen/Qwen3-4B-Instruct-2507",
-        "display_name": "🌱 Qwen3 4B",
+        "provider": "ollama",
+        "model_id": QWEN3_4B_MODEL_ID,
+        "display_name": "Qwen3 4B · Q4_K_M · локально",
     },
-    "gemma-3-4b": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",  # 0.05 / 0.10
-        "model_id": "google/gemma-3-4b-it",
-        "display_name": "💎 Gemma 3 4B",
-    },
-    # ── Средние: лучше по качеству ──
-    "qwen3-14b": {
-        "provider": "huggingface",
-        "provider_name": "nscale",  # 0.07 / 0.20
-        "model_id": "Qwen/Qwen3-14B",
-        "display_name": "🌊 Qwen3 14B",
-    },
-    "gpt-oss-20b": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",  # 0.03 / 0.14
-        "model_id": "openai/gpt-oss-20b",
-        "display_name": "🤖 gpt-oss 20B",
-    },
-    "phi-4": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",  # 0.07 / 0.14
-        "model_id": "microsoft/phi-4",
-        "display_name": "🧪 Phi-4",
-    },
-    # ── Legacy aliases — чтобы не ломать старые тесты и клиентов ──
-    "mistral-7b": {
-        "provider": "huggingface",
-        "provider_name": "novita",
-        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
-        "display_name": "🦙 Llama 3.1 8B",
-    },
-    "zephyr-7b": {
-        "provider": "huggingface",
-        "provider_name": "nscale",
-        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "display_name": "🐍 Qwen Coder 7B",
-    },
-    "mistral-nemo": {
-        "provider": "huggingface",
-        "provider_name": "nscale",
-        "model_id": "Qwen/Qwen3-14B",
-        "display_name": "🌊 Qwen3 14B",
-    },
-    "gpt-4o-mini": {
-        "provider": "huggingface",
-        "provider_name": "novita",
-        "model_id": "meta-llama/Llama-3.1-8B-Instruct",
-        "display_name": "🦙 Llama 3.1 8B",
-    },
-    "deepseek-chat": {
-        "provider": "huggingface",
-        "provider_name": "nscale",
-        "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "display_name": "🐍 Qwen Coder 7B",
-    },
-    "qwen": {
-        "provider": "huggingface",
-        "provider_name": "nscale",
-        "model_id": "Qwen/Qwen3-14B",
-        "display_name": "🌊 Qwen3 14B",
+    "qwen3-8b": {
+        "provider": "ollama",
+        "model_id": QWEN3_8B_MODEL_ID,
+        "display_name": "Qwen3 8B · Q4_K_M · локально",
     },
 }
 
+# Compatibility mapping for previously selected model keys. They are not
+# exposed by GET /models, but old browser selections and clients can still
+# submit them. The display/evidence always identifies the actual Ollama model.
+LEGACY_MODEL_ALIASES: dict[str, str] = {
+    "llama-3.1-8b": "qwen3-4b",
+    "qwen-coder-7b": "qwen3-8b",
+    "gemma-3-4b": "qwen3-4b",
+    "qwen3-14b": "qwen3-8b",
+    "gpt-oss-20b": "qwen3-8b",
+    "phi-4": "qwen3-4b",
+    "mistral-7b": "qwen3-4b",
+    "zephyr-7b": "qwen3-8b",
+    "mistral-nemo": "qwen3-8b",
+    "gpt-4o-mini": "qwen3-4b",
+    "deepseek-chat": "qwen3-8b",
+    "qwen": "qwen3-8b",
+}
 
-# ── Модели-судьи (нужен поумнее) ──
-JUDGE_MODEL = {
-    "gpt-oss-120b": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",  # 0.037 / 0.17
-        "model_id": "openai/gpt-oss-120b",
-        "display_name": "⚖️ gpt-oss 120B (Judge)",
+DEFAULT_MODELS = ["qwen3-4b", "qwen3-8b"]
+
+# ---------------------------------------------------------------------------
+# Judge models
+# ---------------------------------------------------------------------------
+
+_LOCAL_JUDGE_MODELS: dict[str, dict[str, Any]] = {
+    "qwen3-4b": {
+        "provider": "ollama",
+        "model_id": QWEN3_4B_MODEL_ID,
+        "display_name": "Qwen3 4B · локальный Judge",
     },
-    "llama-3.3-70b": {
-        "provider": "huggingface",
-        "provider_name": "novita",  # 0.135 / 0.4
-        "model_id": "meta-llama/Llama-3.3-70B-Instruct",
-        "display_name": "⚖️ Llama 3.3 70B (Judge)",
-    },
-    "qwen3-32b": {
-        "provider": "huggingface",
-        "provider_name": "nscale",  # 0.08 / 0.25
-        "model_id": "Qwen/Qwen3-32B",
-        "display_name": "⚖️ Qwen3 32B (Judge)",
-    },
-    # ── Legacy aliases для судьи ──
-    "mistral-7b": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",
-        "model_id": "openai/gpt-oss-20b",
-        "display_name": "⚖️ gpt-oss 20B (Judge)",
-    },
-    "zephyr-7b": {
-        "provider": "huggingface",
-        "provider_name": "nscale",
-        "model_id": "Qwen/Qwen3-32B",
-        "display_name": "⚖️ Qwen3 32B (Judge)",
-    },
-    "mistral-nemo": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",
-        "model_id": "openai/gpt-oss-120b",
-        "display_name": "⚖️ gpt-oss 120B (Judge)",
-    },
-    "deepseek-chat": {
-        "provider": "huggingface",
-        "provider_name": "nscale",
-        "model_id": "Qwen/Qwen3-32B",
-        "display_name": "⚖️ Qwen3 32B (Judge)",
-    },
-    "gpt-4o-mini": {
-        "provider": "huggingface",
-        "provider_name": "deepinfra",
-        "model_id": "openai/gpt-oss-20b",
-        "display_name": "⚖️ gpt-oss 20B (Judge)",
+    "qwen3-8b": {
+        "provider": "ollama",
+        "model_id": QWEN3_8B_MODEL_ID,
+        "display_name": "Qwen3 8B · локальный Judge",
     },
 }
 
-DEFAULT_MODELS = ["llama-3.1-8b", "qwen-coder-7b"]
-DEFAULT_JUDGE = "gpt-oss-120b"
+# Some existing Pydantic request schemas still have the old values as
+# defaults (for example "mistral-7b" and "gpt-oss-120b"). Keep accepting
+# them for backward compatibility, but resolve them to a real local model.
+JUDGE_MODEL_ALIASES: dict[str, str] = {
+    "gpt-oss-120b": "qwen3-8b",
+    "llama-3.3-70b": "qwen3-8b",
+    "qwen3-32b": "qwen3-8b",
+    "mistral-7b": "qwen3-8b",
+    "zephyr-7b": "qwen3-8b",
+    "mistral-nemo": "qwen3-8b",
+    "deepseek-chat": "qwen3-8b",
+    "gpt-4o-mini": "qwen3-8b",
+}
+
+JUDGE_MODEL: dict[str, dict[str, Any]] = dict(_LOCAL_JUDGE_MODELS)
+for _legacy_key, _canonical_key in JUDGE_MODEL_ALIASES.items():
+    JUDGE_MODEL[_legacy_key] = {
+        **_LOCAL_JUDGE_MODELS[_canonical_key],
+        "alias_of": _canonical_key,
+        "display_name": (
+            f"{_LOCAL_JUDGE_MODELS[_canonical_key]['display_name']} "
+            f"(совместимость: {_legacy_key})"
+        ),
+    }
+
+# Only canonical models are shown in the UI. Legacy aliases remain accepted
+# by the request schemas for backward compatibility.
+PUBLIC_JUDGE_MODELS = dict(_LOCAL_JUDGE_MODELS)
+
+DEFAULT_JUDGE = "qwen3-8b"
+
+
+def resolve_judge_model_key(model_key: str | None) -> str:
+    """Return a canonical Judge key, falling back to the configured default."""
+    if not model_key or model_key not in JUDGE_MODEL:
+        return DEFAULT_JUDGE
+    return JUDGE_MODEL[model_key].get("alias_of", model_key)
+
+
+# ---------------------------------------------------------------------------
+# Prompt loading
+# ---------------------------------------------------------------------------
 
 
 def load_prompt(filename: str) -> str:
@@ -194,166 +211,245 @@ SYSTEM_PROMPT = load_prompt("system_prompt.md")
 JUDGE_PROMPT_TEMPLATE = load_prompt("judge_prompt.md")
 
 
-# ════════════════════════════════════════════════════════════════
-# HUGGING FACE INFERENCE (OpenAI-совместимый роутер)
-# ════════════════════════════════════════════════════════════════
+# ---------------------------------------------------------------------------
+# Ollama inference
+# ---------------------------------------------------------------------------
 
 
-async def fetch_from_huggingface(session, model_id, prompt, temperature=0.0, max_tokens=2000):
-    """
-    Вызывает HF Router в OpenAI-совместимом формате.
-    model_id должен иметь вид "author/Model:provider" (например,
-    "meta-llama/Llama-3.1-8B-Instruct:novita").
-
-    Требует HUGGINGFACE_API_KEY в .env (см. https://huggingface.co/settings/tokens).
-    У токена должно быть право "Make calls to Inference Providers".
-    """
-    if not API_KEY:
-        logger.error("HUGGINGFACE_API_KEY не задан в .env")
-        return {
-            "model": model_id,
-            "content": "Ошибка: HUGGINGFACE_API_KEY не задан",
-            "status": "error",
-        }
-
-    logger.info("🤗 Hugging Face запрос к %s", model_id)
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
+def _error_result(model_id: str, message: str) -> dict[str, str]:
+    return {
+        "model": model_id,
+        "content": message,
+        "status": "error",
     }
-    payload = {
-        "model": model_id,  # "author/Model:provider"
+
+
+async def fetch_from_ollama(
+        session: aiohttp.ClientSession,
+        model_id: str,
+        prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 2000,
+        *,
+        json_mode: bool = False,
+) -> dict[str, str]:
+    """Call the local Ollama /api/chat endpoint.
+
+    The function never raises for ordinary provider/network/model errors. It
+    returns a status=error result so the attempted Arena battle can still be
+    persisted and shown to the user.
+    """
+    if not prompt or not prompt.strip():
+        return _error_result(model_id, "Пустой промпт: запрос в Ollama не отправлен.")
+
+    payload: dict[str, Any] = {
+        "model": model_id,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
+        "stream": False,
+        "think": OLLAMA_THINK,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "options": {
+            "temperature": float(temperature),
+            "num_predict": int(max_tokens),
+            "num_ctx": OLLAMA_NUM_CTX,
+        },
     }
+    if json_mode:
+        # Ollama's constrained JSON output is useful for the Judge response.
+        payload["format"] = "json"
+
+    logger.info("🦙 Ollama запрос к %s (num_ctx=%s)", model_id, OLLAMA_NUM_CTX)
+    started_at = time.perf_counter()
 
     try:
-        async with session.post(
-            HF_ROUTER_URL,
-            headers=headers,
-            json=payload,
-            timeout=aiohttp.ClientTimeout(total=120),
-        ) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                try:
-                    content = data["choices"][0]["message"]["content"]
-                except (KeyError, IndexError, TypeError) as e:
-                    logger.error("❌ HF неожиданный формат ответа: %s", str(data)[:300])
-                    return {
-                        "model": model_id,
-                        "content": f"HF: неожиданный формат ответа ({e})",
-                        "status": "error",
-                    }
-                logger.info("✅ 🤗 Hugging Face успех (%d символов)", len(content))
-                return {"model": model_id, "content": content, "status": "success"}
+        async with OLLAMA_REQUEST_SEMAPHORE:
+            async with session.post(
+                    OLLAMA_CHAT_URL,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=OLLAMA_REQUEST_TIMEOUT),
+            ) as response:
+                response_text = await response.text()
 
-            error_text = await resp.text()
-            logger.error("❌ 🤗 HF ошибка %d: %s", resp.status, error_text[:200])
-            return {
-                "model": model_id,
-                "content": f"Hugging Face ошибка {resp.status}: {error_text[:150]}",
-                "status": "error",
-            }
+                if response.status != 200:
+                    detail = response_text[:700]
+                    try:
+                        error_data = json.loads(response_text)
+                        detail = str(error_data.get("error", detail))
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+
+                    lowered_detail = detail.lower()
+                    if response.status == 404 or "model not found" in lowered_detail:
+                        error_message = (
+                            f"Модель Ollama '{model_id}' не найдена локально. "
+                            f"Загрузите её командой: ollama pull {model_id}. "
+                            f"Ответ Ollama: {detail}"
+                        )
+                    else:
+                        error_message = (
+                            f"Ollama вернул HTTP {response.status}: {detail}"
+                        )
+
+                    logger.error("❌ Ollama ошибка %s: %s", response.status, detail)
+                    return _error_result(model_id, error_message)
+
+                try:
+                    data = json.loads(response_text)
+                except json.JSONDecodeError as exc:
+                    logger.error("Ollama вернул невалидный JSON: %s", response_text[:300])
+                    return _error_result(
+                        model_id,
+                        f"Ollama вернул некорректный JSON: {exc}",
+                    )
+
+                message = data.get("message") or {}
+                content = message.get("content")
+
+                # Qwen3 may return a separate `thinking` field. We deliberately
+                # use only `content` as the model's answer/evidence and never
+                # persist the internal thinking field in Arena history.
+                if not isinstance(content, str) or not content.strip():
+                    logger.error(
+                        "Ollama не вернул message.content. Ответ: %s",
+                        response_text[:500],
+                    )
+                    return _error_result(
+                        model_id,
+                        "Ollama завершил запрос, но не вернул непустой message.content.",
+                    )
+
+                elapsed = time.perf_counter() - started_at
+                logger.info(
+                    "✅ Ollama успех: %s, %d символов, %.2f сек., prompt=%s tokens, output=%s tokens",
+                    model_id,
+                    len(content),
+                    elapsed,
+                    data.get("prompt_eval_count", "?"),
+                    data.get("eval_count", "?"),
+                )
+                return {
+                    "model": model_id,
+                    "content": content.strip(),
+                    "status": "success",
+                }
 
     except asyncio.TimeoutError:
-        logger.error("⏱️ 🤗 HF TIMEOUT")
-        return {
-            "model": model_id,
-            "content": "Timeout: Hugging Face запрос слишком долго",
-            "status": "error",
-        }
-    except Exception as e:
-        logger.exception("🤗 HF исключение")
-        return {
-            "model": model_id,
-            "content": f"HF исключение: {str(e)[:100]}",
-            "status": "error",
-        }
+        logger.error("⏱️ Ollama TIMEOUT для модели %s", model_id)
+        return _error_result(
+            model_id,
+            f"Тайм-аут Ollama: модель '{model_id}' не ответила за {OLLAMA_REQUEST_TIMEOUT:g} сек.",
+        )
+    except aiohttp.ClientConnectorError as exc:
+        logger.exception("Не удалось подключиться к Ollama")
+        return _error_result(
+            model_id,
+            f"Не удалось подключиться к Ollama по адресу {OLLAMA_BASE_URL}. "
+            f"Проверьте, что приложение Ollama запущено. Детали: {exc}",
+        )
+    except aiohttp.ClientError as exc:
+        logger.exception("Ошибка HTTP-клиента при обращении к Ollama")
+        return _error_result(model_id, f"Сетевая ошибка Ollama: {exc}")
+    except Exception as exc:  # Keep an external/model error as Arena evidence.
+        logger.exception("Непредвиденная ошибка при обращении к Ollama")
+        return _error_result(model_id, f"Ошибка Ollama: {type(exc).__name__}: {exc}")
 
 
-# ════════════════════════════════════════════════════════════════
-# УНИВЕРСАЛЬНЫЙ ФЕТЧЕР
-# ════════════════════════════════════════════════════════════════
+# ---------------------------------------------------------------------------
+# Model routing and pairwise generation
+# ---------------------------------------------------------------------------
 
 
-async def fetch_from_model(session, model_key, prompt, temperature=0.0, max_tokens=2000):
-    """
-    Универсальный фетчер. Находит модель по ключу в AVAILABLE_MODELS,
-    собирает полный ID с провайдером и вызывает HF Router.
-    """
-    if model_key not in AVAILABLE_MODELS:
-        logger.error("Модель %s не найдена", model_key)
-        return {
-            "model": model_key,
-            "content": f"Модель {model_key} не найдена",
-            "status": "error",
-        }
+async def fetch_from_model(
+        session: aiohttp.ClientSession,
+        model_key: str,
+        prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 2000,
+) -> dict[str, str]:
+    """Resolve a public/legacy model key and call the corresponding Ollama tag."""
+    canonical_key = LEGACY_MODEL_ALIASES.get(model_key, model_key)
+    config = AVAILABLE_MODELS.get(canonical_key)
 
-    config = AVAILABLE_MODELS[model_key]
+    if config is None:
+        logger.error("Модель %s не найдена в AVAILABLE_MODELS", model_key)
+        return _error_result(
+            model_key,
+            f"Модель '{model_key}' не зарегистрирована в Arena. Обновите список моделей.",
+        )
+
     model_id = config["model_id"]
-    provider = config.get("provider_name")
-    full_model_id = f"{model_id}:{provider}" if provider else model_id
+    return await fetch_from_ollama(
+        session=session,
+        model_id=model_id,
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
-    return await fetch_from_huggingface(session, full_model_id, prompt, temperature, max_tokens)
 
+async def compare_models(
+        models: list[str],
+        session: aiohttp.ClientSession,
+        custom_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Run participant models sequentially and preserve every attempt as evidence.
 
-async def compare_models(models, session, custom_prompt=None):
-    """Запускает две модели параллельно."""
+    Sequential calls are intentional: two different GGUF models should not
+    compete for the laptop's 8 GB VRAM at the same time.
+    """
     prompt = custom_prompt or SYSTEM_PROMPT
 
-    tasks = []
+    if not models:
+        return {"error": "Не выбрано ни одной модели", "results": []}
+
+    logger.info("📊 Последовательный запуск сравнения %d модели(й)", len(models))
+    results: list[dict[str, str]] = []
+
     for model_key in models:
-        if model_key not in AVAILABLE_MODELS:
-            logger.warning("Модель %s не найдена", model_key)
-            continue
-        tasks.append(fetch_from_model(session, model_key, prompt))
+        result = await fetch_from_model(
+            session=session,
+            model_key=model_key,
+            prompt=prompt,
+            temperature=0.0,
+            max_tokens=2000,
+        )
+        # Do not drop failures. They are part of the battle history and are
+        # consumed by judge_winner() to produce an availability verdict.
+        results.append(result)
 
-    if not tasks:
-        logger.warning("Не выбрано ни одной модели")
-        return {"error": "Не выбрано ни одной модели"}
-
-    logger.info("📊 Запуск сравнения %d модели(й)", len(tasks))
-    results = await asyncio.gather(*tasks)
     return {"results": results}
 
 
-def extract_json(content: str) -> dict:
-    """Парсит JSON из ответа судьи."""
-    content = content.strip()
-    content = re.sub(r"^```json\s*", "", content, flags=re.IGNORECASE).strip()
-    content = re.sub(r"\s*```$", "", content).strip()
+# ---------------------------------------------------------------------------
+# Judge response parsing
+# ---------------------------------------------------------------------------
 
-    # 1) Строгий шаблон
-    strict = r'\{\s*"winner"\s*:\s*"(MODEL_A|MODEL_B|DRAW)"\s*,\s*"reason"\s*:\s*"([^"]*)"\s*\}'
-    m = re.search(strict, content, re.DOTALL)
-    if m:
-        return {"winner": m.group(1), "reason": m.group(2)}
 
-    # 2) Нестрогий шаблон
-    loose = r'\{\s*"winner"\s*:\s*(MODEL_A|MODEL_B|DRAW)\s*,\s*"reason"\s*:\s*"([^"]*)"\s*\}'
-    m = re.search(loose, content, re.DOTALL)
-    if m:
-        return {"winner": m.group(1), "reason": m.group(2)}
+def extract_json(content: str) -> dict[str, Any]:
+    """Extract the first JSON object containing `winner` and `reason`.
 
-    # 3) Fallback
-    start = content.find("{")
-    end = content.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        json_str = content[start : end + 1]
+    Handles plain JSON, Markdown code fences, and short text preceding JSON.
+    """
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("Пустой ответ Judge")
+
+    cleaned = content.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", cleaned):
         try:
-            obj = json.loads(json_str)
-            if "winner" in obj and "reason" in obj:
-                return obj
+            parsed, _ = decoder.raw_decode(cleaned[match.start():])
         except json.JSONDecodeError:
-            pass
+            continue
 
-    raise ValueError("JSON объект не найден")
+        if isinstance(parsed, dict) and "winner" in parsed and "reason" in parsed:
+            return parsed
+
+    raise ValueError("JSON-объект с полями winner и reason не найден")
 
 
-# Нужно, чтоб промт содержал все плейсхолдеры, чтоб понимать - кто победил !
 REQUIRED_PLACEHOLDERS = (
     "{model_a_name}",
     "{response_a}",
@@ -363,143 +459,208 @@ REQUIRED_PLACEHOLDERS = (
 
 
 async def ask_judge(
-    session,
-    model1,
-    response1,
-    model2,
-    response2,
-    judge_model_key=None,
-    judge_prompt: str | None = None,
-):
-    """Отправляет ответы двух моделей судье.
+        session: aiohttp.ClientSession,
+        model1: str,
+        response1: str,
+        model2: str,
+        response2: str,
+        judge_model_key: str | None = None,
+        judge_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Send two model responses to the configured local Ollama Judge."""
+    canonical_judge_key = resolve_judge_model_key(judge_model_key or DEFAULT_JUDGE)
 
-    Если передан judge_prompt — используется он вместо JUDGE_PROMPT_TEMPLATE.
-    Кастомный промпт обязан содержать все четыре плейсхолдера:
-    {model_a_name}, {response_a}, {model_b_name}, {response_b}.
-    """
-    if judge_model_key is None:
-        judge_model_key = DEFAULT_JUDGE
-
-    if judge_model_key not in JUDGE_MODEL:
-        logger.warning("Судья %s не найден, используем default", judge_model_key)
-        judge_model_key = DEFAULT_JUDGE
-
-    # ── ВАЛИДАЦИЯ КАСТОМНОГО ПРОМПТА ──
     if judge_prompt is not None:
-        # Пустая строка или строка из пробелов → приравниваем к «не задан»
         if not judge_prompt.strip():
-            logger.warning("⚠️ judge_prompt пустой, используем шаблон по умолчанию")
+            logger.warning("Пустой judge_prompt; используется шаблон по умолчанию")
             judge_prompt = None
         else:
-            missing = [ph for ph in REQUIRED_PLACEHOLDERS if ph not in judge_prompt]
+            missing = [placeholder for placeholder in REQUIRED_PLACEHOLDERS if placeholder not in judge_prompt]
             if missing:
-                logger.error("❌ judge_prompt не содержит плейсхолдеры: %s", missing)
-                return {
-                    "error": (
+                message = (
                         "Кастомный judge_prompt не содержит обязательные плейсхолдеры: "
                         + ", ".join(missing)
-                    )
-                }
+                )
+                logger.error(message)
+                return {"error": message}
 
-    # ── ЭКРАНИРОВАНИЕ ──
-    safe_resp1 = response1.replace("{", "{{").replace("}", "}}")
-    safe_resp2 = response2.replace("{", "{{").replace("}", "}}")
+    # Escape braces in model responses so that JSON/code examples in them are
+    # not interpreted as Python str.format placeholders.
+    safe_response1 = str(response1).replace("{", "{{").replace("}", "}}")
+    safe_response2 = str(response2).replace("{", "{{").replace("}", "}}")
 
-    template = judge_prompt if judge_prompt else JUDGE_PROMPT_TEMPLATE
+    template = judge_prompt or JUDGE_PROMPT_TEMPLATE
     try:
         prompt = template.format(
             model_a_name=model1,
-            response_a=safe_resp1,
+            response_a=safe_response1,
             model_b_name=model2,
-            response_b=safe_resp2,
+            response_b=safe_response2,
         )
-    except KeyError as e:
-        logger.error("❌ Кастомный judge_prompt содержит неизвестный плейсхолдер %s", e)
-        return {"error": f"Кастомный judge_prompt содержит неизвестный плейсхолдер {e}"}
+    except (KeyError, ValueError, IndexError) as exc:
+        logger.exception("Ошибка форматирования judge_prompt")
+        return {"error": f"Ошибка форматирования judge_prompt: {exc}"}
 
-    logger.info("⚖️ Отправка запроса судье %s", judge_model_key)
-
-    judge_config = JUDGE_MODEL[judge_model_key]
+    judge_config = JUDGE_MODEL[canonical_judge_key]
     judge_model_id = judge_config["model_id"]
-    judge_provider = judge_config.get("provider_name")
-    full_judge_id = f"{judge_model_id}:{judge_provider}" if judge_provider else judge_model_id
+    logger.info(
+        "⚖️ Отправка запроса локальному Judge %s (%s)",
+        canonical_judge_key,
+        judge_model_id,
+    )
 
-    response = await fetch_from_huggingface(
-        session, full_judge_id, prompt, temperature=0.0, max_tokens=1500
+    response = await fetch_from_ollama(
+        session=session,
+        model_id=judge_model_id,
+        prompt=prompt,
+        temperature=0.0,
+        max_tokens=1500,
+        json_mode=True,
     )
 
     if response["status"] != "success":
-        logger.error("❌ Судья не ответил: %s", response["content"][:200])
-        return {"error": f"Судья не ответил: {response['content']}"}
+        error_message = f"Локальный Judge не ответил: {response['content']}"
+        logger.error(error_message)
+        return {"error": error_message}
 
     try:
         verdict = extract_json(response["content"])
-        logger.info("✅ Судья вернул: %s", verdict.get("winner"))
-    except Exception as e:
-        logger.warning("⚠️ Ошибка парсинга JSON: %s", str(e))
-        return {"error": f"Ошибка парсинга JSON: {str(e)}", "raw_response": response["content"]}
+    except (ValueError, TypeError) as exc:
+        logger.warning("Ошибка парсинга JSON ответа Judge: %s", exc)
+        return {
+            "error": f"Judge вернул некорректный JSON: {exc}",
+            "raw_response": response["content"],
+        }
 
-    winner = verdict.get("winner")
+    winner = str(verdict.get("winner", "")).strip().upper()
     reason = verdict.get("reason")
 
-    if winner not in ["MODEL_A", "MODEL_B", "DRAW"]:
-        logger.warning("⚠️ Неверный winner: %s", winner)
-        return {"error": f"Неверный winner: {winner}", "raw_response": response["content"]}
+    if winner not in {"MODEL_A", "MODEL_B", "DRAW"}:
+        return {
+            "error": f"Judge вернул недопустимое значение winner: {winner!r}",
+            "raw_response": response["content"],
+        }
 
     if not isinstance(reason, str) or not reason.strip():
-        logger.warning("⚠️ Пустой reason")
-        return {"error": "Пустой reason", "raw_response": response["content"]}
+        return {
+            "error": "Judge не вернул непустое поле reason",
+            "raw_response": response["content"],
+        }
 
-    return {"winner": winner, "reason": reason}
+    logger.info("✅ Локальный Judge вернул: %s", winner)
+    return {"winner": winner, "reason": reason.strip()}
 
 
-async def judge_winner(results, session, judge_model=None, judge_prompt: str | None = None):
-    """Определяет победителя на основе ответов моделей.
+# ---------------------------------------------------------------------------
+# Arena verdict logic
+# ---------------------------------------------------------------------------
 
-    judge_prompt — опциональный кастомный промпт для судьи.
-    Если None, используется JUDGE_PROMPT_TEMPLATE.
+
+async def judge_winner(
+        results: list[dict[str, Any]],
+        session: aiohttp.ClientSession,
+        judge_model: str | None = None,
+        judge_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Produce an Arena verdict, including technical unavailability verdicts.
+
+    Business rule preserved: an attempted battle is not discarded when a
+    participant model is unavailable. With one successful participant, the
+    available model is returned as the technical fallback winner and the user
+    is told to replace the unavailable model. If both fail, there is no winner.
     """
-    if judge_model is None:
-        judge_model = DEFAULT_JUDGE
+    canonical_judge_key = resolve_judge_model_key(judge_model or DEFAULT_JUDGE)
+    logger.info("⚖️ Начало судейства, модель: %s", canonical_judge_key)
 
-    logger.info("⚖️ Начало судейства, модель: %s", judge_model)
-    successful_results = [r for r in results if r.get("status") == "success"]
-    failed_results = [r for r in results if r.get("status") == "error"]
+    successful_results = [
+        item for item in results if item.get("status") == "success"
+    ]
+    failed_results = [
+        item for item in results if item.get("status") != "success"
+    ]
 
-    if len(successful_results) == 0:
-        logger.error("❌ Все модели завершились ошибкой")
+    if not successful_results:
+        logger.error("❌ Ни одна из моделей не вернула ответ")
+        failure_details = "; ".join(
+            f"{item.get('model', 'unknown')}: {item.get('content', 'нет подробностей')}"
+            for item in failed_results
+        )
+        reason = (
+            "Не удалось получить ответ ни от одной выбранной модели. "
+            "Проверьте, что Ollama запущен, а модели загружены локально; "
+            "затем выберите другие модели."
+        )
+        if failure_details:
+            reason = f"{reason} Подробности: {failure_details}"
+
         return {
             "winners": [],
-            "losers": [r["model"] for r in failed_results],
-            "message": "❌ Все модели завершились ошибкой.",
-            "judge_result": {"winner": None, "reason": "Обе модели не смогли выполнить задание."},
-            "reason": "Обе модели не смогли выполнить задание.",
-            "evidence": failed_results,
+            "losers": [item.get("model", "unknown") for item in failed_results],
+            "message": (
+                "❌ Выбранные модели недоступны или не смогли ответить. "
+                "Проверьте Ollama либо выберите другие модели."
+            ),
+            "judge_result": {"winner": None, "reason": reason},
+            "reason": reason,
+            "evidence": results,
             "winner_position": None,
-            "judge_model": judge_model,
+            "judge_model": canonical_judge_key,
         }
 
     if len(successful_results) == 1:
         winner = successful_results[0]
-        loser_model = failed_results[0]["model"] if failed_results else "неизвестная модель"
-        winner_pos = "MODEL_A" if winner["model"] == results[0]["model"] else "MODEL_B"
-        reason_text = f"Модель {loser_model} завершилась с ошибкой, побеждает {winner['model']}."
-        logger.info("✅ Одна успешная модель: %s", winner["model"])
+        failed_names = [item.get("model", "unknown") for item in failed_results]
+        failed_details = "; ".join(
+            f"{item.get('model', 'unknown')}: {item.get('content', 'нет подробностей')}"
+            for item in failed_results
+        )
+        if failed_names:
+            unavailable_text = ", ".join(failed_names)
+            reason = (
+                f"Модель(и) {unavailable_text} не ответила(и) из-за технической ошибки. "
+                "Выберите другую модель вместо недоступной. "
+                f"Единственный полученный ответ: {winner.get('model', 'unknown')}."
+            )
+            if failed_details:
+                reason = f"{reason} Подробности: {failed_details}"
+            message = (
+                f"⚠️ Модель(и) {unavailable_text} недоступна(ы) — выберите другую. "
+                f"Ответ получен только от {prettify_model_name(winner.get('model', 'unknown'))}."
+            )
+        else:
+            reason = "Получен только один успешный ответ; полноценное сравнение невозможно."
+            message = "⚠️ Получен только один ответ; полноценное сравнение невозможно."
+
+        winner_index = next(
+            (index for index, item in enumerate(results) if item is winner),
+            0,
+        )
+        winner_position = "MODEL_A" if winner_index == 0 else "MODEL_B" if winner_index == 1 else None
+        winner_model = winner.get("model", "unknown")
+
+        logger.info("⚠️ Технический вердикт: доступна только модель %s", winner_model)
         return {
-            "winners": [winner["model"]],
-            "losers": [r["model"] for r in failed_results],
-            "message": f"🏆 Победитель: {winner['model']}",
-            "judge_result": {"winner": winner["model"], "reason": reason_text},
-            "reason": reason_text,
+            "winners": [winner_model],
+            "losers": failed_names,
+            "message": message,
+            "judge_result": {
+                "winner": winner_model,
+                "reason": reason,
+                "automatic": True,
+            },
+            "reason": reason,
             "evidence": results,
-            "winner_position": winner_pos,
-            "judge_model": judge_model,
+            "winner_position": winner_position,
+            "judge_model": canonical_judge_key,
         }
 
-    # Две успешные модели
+    # The Arena is a pairwise comparison. If a client submits more than two
+    # models, compare the first two successful responses as before.
     res1, res2 = successful_results[0], successful_results[1]
-    model1, model2 = res1["model"], res2["model"]
-    response1, response2 = res1["content"], res2["content"]
+    model1 = res1.get("model", "MODEL_A")
+    model2 = res2.get("model", "MODEL_B")
+    response1 = res1.get("content", "")
+    response2 = res2.get("content", "")
 
     if model1 == model2:
         judge_model1 = f"{model1} (MODEL_A)"
@@ -508,35 +669,34 @@ async def judge_winner(results, session, judge_model=None, judge_prompt: str | N
         judge_model1, judge_model2 = model1, model2
 
     judge_result = await ask_judge(
-        session,
-        judge_model1,
-        response1,
-        judge_model2,
-        response2,
-        judge_model,
-        judge_prompt=judge_prompt,  # ← пробрасываем дальше
+        session=session,
+        model1=judge_model1,
+        response1=response1,
+        model2=judge_model2,
+        response2=response2,
+        judge_model_key=canonical_judge_key,
+        judge_prompt=judge_prompt,
     )
 
     if "error" in judge_result:
         error_detail = judge_result.get("error", "Неизвестная ошибка")
-        logger.error("❌ Ошибка судьи: %s", error_detail)
+        logger.error("❌ Ошибка Judge: %s", error_detail)
         return {
             "winners": [],
             "losers": [],
-            "message": "❌ Судья не смог определить победителя.",
+            "message": "❌ Локальный Judge не смог определить победителя.",
             "judge_result": {"winner": None, "reason": error_detail},
             "judge_error": judge_result,
             "evidence": results,
             "winner_position": None,
-            "judge_model": judge_model,
+            "judge_model": canonical_judge_key,
             "reason": error_detail,
         }
 
     winner_alias = judge_result["winner"]
-
     if winner_alias == "DRAW":
         reason = judge_result.get("reason", "")
-        logger.info("🤝 Ничья!")
+        logger.info("🤝 Judge зафиксировал ничью")
         return {
             "winners": [],
             "losers": [],
@@ -545,13 +705,13 @@ async def judge_winner(results, session, judge_model=None, judge_prompt: str | N
             "reason": reason,
             "evidence": results,
             "winner_position": None,
-            "judge_model": judge_model,
+            "judge_model": canonical_judge_key,
         }
 
     winner_position = winner_alias
     winner_map = {"MODEL_A": model1, "MODEL_B": model2}
     winner = winner_map[winner_alias]
-    losers = [m for m in [model1, model2] if m != winner]
+    losers = [model for model in (model1, model2) if model != winner]
 
     reason = judge_result.get("reason", "")
     reason = reason.replace("MODEL_A", judge_model1).replace("MODEL_B", judge_model2)
@@ -568,22 +728,37 @@ async def judge_winner(results, session, judge_model=None, judge_prompt: str | N
         "reason": reason,
         "evidence": results,
         "winner_position": winner_position,
-        "judge_model": judge_model,
+        "judge_model": canonical_judge_key,
     }
 
 
+# ---------------------------------------------------------------------------
+# Public Arena orchestration function
+# ---------------------------------------------------------------------------
+
+
 async def run_arena_comparison(
-    models: list[str],
-    session: aiohttp.ClientSession,
-    prompt: str = None,
-) -> dict:
-    """Запускает модели без судьи. Возвращает результаты и время."""
-    start = time.time()
-    compare_result = await compare_models(models=models, session=session, custom_prompt=prompt)
-    elapsed = round(time.time() - start, 2)
-    if "error" in compare_result:
-        return compare_result
+        models: list[str],
+        session: aiohttp.ClientSession,
+        prompt: str | None = None,
+) -> dict[str, Any]:
+    """Run participant models and return evidence plus elapsed time."""
+    started_at = time.perf_counter()
+    compare_result = await compare_models(
+        models=models,
+        session=session,
+        custom_prompt=prompt,
+    )
+    elapsed = round(time.perf_counter() - started_at, 2)
+
+    if "error" in compare_result and not compare_result.get("results"):
+        return {
+            "error": compare_result["error"],
+            "results": [],
+            "elapsed": elapsed,
+        }
+
     return {
-        "results": compare_result["results"],
+        "results": compare_result.get("results", []),
         "elapsed": elapsed,
     }
