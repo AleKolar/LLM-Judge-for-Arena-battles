@@ -1,66 +1,84 @@
 from contextlib import asynccontextmanager
+import logging
+
+import aiohttp
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-import aiohttp
-import logging
-
 from sqlalchemy import text
 from starlette.staticfiles import StaticFiles
 
 from src.database.database import async_engine
 from src.routers import llm_arena
-from src.services.ai_service import HUGGINGFACE_API_KEY
+from src.services.ai_service import OLLAMA_BASE_URL
 
 logger = logging.getLogger("uvicorn")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создаём aiohttp-сессию
+    # One shared aiohttp session is used by the Arena router for local Ollama calls.
     app.state.http_session = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=30),
-        headers={"User-Agent": "LLM Arena/3.0"}
+        headers={"User-Agent": "LLM Arena/3.0"},
     )
 
-    # ── Блок проверки AI-сервиса ──
-    if not HUGGINGFACE_API_KEY:
-        logger.warning("⚠️ HUGGINGFACE_API_KEY не задан. LLM Arena будет работать в ограниченном режиме.")
-    else:
-        try:
-            async with app.state.http_session.get(
-                "https://huggingface.co/api/whoami-v2",
-                headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"},
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    logger.info(f"✅ Hugging Face API доступен, токен валиден (user: {data.get('name')})")
-                elif resp.status == 401:
-                    logger.warning("⚠️ Hugging Face API доступен, но токен невалиден (401)")
-                else:
-                    logger.warning(f"⚠️ Hugging Face вернул статус {resp.status}")
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось проверить Hugging Face: {e}")
-
-    # ── Блок проверки БД ──
+    # Check the local Ollama service instead of checking the obsolete
+    # Hugging Face token. The application still starts if Ollama is offline,
+    # so Arena can report the failed model attempts to the user.
+    ollama_tags_url = f"{OLLAMA_BASE_URL}/api/tags"
     try:
-        async with async_engine.connect() as conn:
-            result = await conn.execute(text("SELECT 1"))
-            logger.info(f"✅ Соединение с БД установлено: {result.scalar()}")
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось подключиться к БД: {e}")
+        async with app.state.http_session.get(ollama_tags_url) as response:
+            if response.status == 200:
+                data = await response.json()
+                model_names = [
+                    item.get("name", "unknown")
+                    for item in data.get("models", [])
+                ]
+                if model_names:
+                    logger.info(
+                        "✅ Ollama доступен. Локальные модели: %s",
+                        ", ".join(model_names),
+                    )
+                else:
+                    logger.warning(
+                        "⚠️ Ollama доступен, но локальные модели не найдены. "
+                        "Загрузите модели через `ollama pull`."
+                    )
+            else:
+                body = (await response.text())[:500]
+                logger.warning(
+                    "⚠️ Ollama вернул HTTP %s при проверке доступности: %s",
+                    response.status,
+                    body,
+                )
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        logger.warning(
+            "⚠️ Не удалось подключиться к Ollama по адресу %s: %s",
+            OLLAMA_BASE_URL,
+            exc,
+        )
 
-    yield
+    # Database health check remains unchanged.
+    try:
+        async with async_engine.connect() as connection:
+            result = await connection.execute(text("SELECT 1"))
+            logger.info("✅ Соединение с БД установлено: %s", result.scalar())
+    except Exception as exc:
+        logger.warning("⚠️ Не удалось подключиться к БД: %s", exc)
 
-    await app.state.http_session.close()
+    try:
+        yield
+    finally:
+        await app.state.http_session.close()
 
-app = FastAPI(title="LLM Arena 🧠⚖️", version="3.0.0", lifespan=lifespan)
+
+app = FastAPI(title="LLM Arena 🧠⚖️", version="3.1.0", lifespan=lifespan)
 
 templates = Jinja2Templates(directory="src/templates")
-
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
-
-# Подключаем роутеры
 app.include_router(llm_arena.router)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
