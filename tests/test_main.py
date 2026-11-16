@@ -31,7 +31,6 @@ from src.services.arena_result import (
 from src.services.download_service import generate_battle_markdown
 from src.utils.normalize import normalize_evidence, to_md
 
-
 # Ключи моделей из текущего AVAILABLE_MODELS (Ollama).
 VALID_MODEL_A = "qwen3-4b"
 VALID_MODEL_B = "qwen3-8b"
@@ -424,3 +423,5 @@ async def test_lifespan_starts_and_closes_session():
         mock_session_cls.assert_called_once()
         mock_session.close.assert_awaited_once()
         mock_engine.connect.assert_called_once()
+
+# python -m pytest --ignore=tests/evals --cov=src --cov-report=xml -v
