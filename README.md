@@ -64,6 +64,10 @@ OpenRouter для основного локального сценария бо�
 *Результат битвы сохраняется в базе данных, доступен для просмотра в веб-интерфейсе и может быть скачан для любой
 завершённой битвы.*
 
+**DeepEval tests:** тесты из `tests/evals/` исключены из стандартного GitHub Actions CI с помощью
+`--ignore=tests/evals`, поскольку используют локальный Ollama и модели Qwen. GitHub-hosted runner не имеет доступа к
+Ollama, запущенному на машине разработчика. Эти тесты запускаются локально при работающем Ollama и загруженных моделях.
+
 [![codecov](https://codecov.io/gh/AleKolar/LLM-Judge-for-Arena-battles/graph/badge.svg)](https://codecov.io/gh/AleKolar/LLM-Judge-for-Arena-battles)
 [![CI](https://github.com/AleKolar/LLM-Judge-for-Arena-battles/actions/workflows/ci.yml/badge.svg)](https://github.com/AleKolar/LLM-Judge-for-Arena-battles/actions/workflows/ci.yml)
 
