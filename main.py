@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import aiohttp
 from fastapi import FastAPI
@@ -11,6 +12,7 @@ from starlette.staticfiles import StaticFiles
 
 from src.database.database import async_engine
 from src.routers import llm_arena
+from src.routers.evals import EvaluationRunManager, router as evals_router
 from src.services.ai_service import OLLAMA_BASE_URL
 
 logger = logging.getLogger("uvicorn")
@@ -18,6 +20,9 @@ logger = logging.getLogger("uvicorn")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # DeepEval subprocess manager is scoped to this FastAPI worker.
+    app.state.evaluation_run_manager = EvaluationRunManager(Path(__file__).resolve().parent)
+
     # One shared aiohttp session is used by the Arena router for local Ollama calls.
     app.state.http_session = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=30),
@@ -68,6 +73,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await app.state.evaluation_run_manager.shutdown()
         await app.state.http_session.close()
 
 
@@ -76,6 +82,7 @@ app = FastAPI(title="LLM Arena 🧠⚖️", version="3.1.0", lifespan=lifespan)
 templates = Jinja2Templates(directory="src/templates")
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 app.include_router(llm_arena.router)
+app.include_router(evals_router)
 
 
 # @app.get("/", response_class=HTMLResponse)

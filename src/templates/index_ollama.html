@@ -393,6 +393,102 @@
             display: none !important;
         }
 
+        .eval-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 16px 0 10px;
+        }
+
+        .eval-actions button {
+            margin: 0;
+        }
+
+        .eval-intro {
+            color: var(--muted);
+            line-height: 1.5;
+            margin: -5px 0 12px;
+        }
+
+        .eval-hint {
+            color: var(--muted);
+            font-size: .88rem;
+            margin: 10px 0;
+            min-height: 1.3em;
+        }
+
+        .eval-stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(90px, 1fr));
+            gap: 10px;
+            margin: 14px 0;
+        }
+
+        .eval-stat {
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: #f8fafc;
+        }
+
+        .eval-stat span {
+            display: block;
+            color: var(--muted);
+            font-size: .78rem;
+            margin-bottom: 5px;
+        }
+
+        .eval-stat strong {
+            font-size: 1.35rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .eval-log-details {
+            margin-top: 14px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            overflow: hidden;
+        }
+
+        .eval-log-details summary {
+            cursor: pointer;
+            padding: 12px 14px;
+            font-weight: 650;
+            background: #f8fafc;
+        }
+
+        .eval-log {
+            max-height: 420px;
+            overflow: auto;
+            margin: 0;
+            padding: 14px;
+            background: var(--dark);
+            color: #e5e7eb;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font: .78rem/1.5 Consolas, "Courier New", monospace;
+        }
+
+        .eval-run-meta {
+            color: var(--muted);
+            font-size: .82rem;
+            margin-top: 8px;
+        }
+
+        @media (max-width: 600px) {
+            .eval-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .eval-actions {
+                flex-direction: column;
+            }
+
+            .eval-actions button {
+                width: 100%;
+            }
+        }
+
         @media (max-width: 900px) {
             body {
                 margin-top: 16px;
@@ -505,6 +601,37 @@
             <p class="subtitle">После генерации ответов здесь появится технический вердикт или решение Judge.</p>
         </div>
     </section>
+
+    <section class="card" id="evalSection">
+        <div class="header-row">
+            <div>
+                <h2>🧪 Оценка качества Arena Judge</h2>
+                <p class="eval-intro">DeepEval проверяет правильность выбора победителя и качество аргументации локального Judge на Golden Dataset.</p>
+            </div>
+            <span id="evalStatus" class="status-pill">Не запускалась</span>
+        </div>
+
+        <div class="eval-actions">
+            <button id="evalCorrectnessBtn" type="button" onclick="startEval('correctness')">🎯 Проверить выбор победителя</button>
+            <button id="evalReasoningBtn" class="secondary" type="button" onclick="startEval('reasoning')">🧠 Проверить аргументацию</button>
+            <button id="evalAllBtn" class="neutral" type="button" onclick="startEval('all')">▶ Полный прогон</button>
+        </div>
+        <p id="evalHint" class="eval-hint" aria-live="polite">Выберите набор тестов. Запуск выполняется в отдельном процессе; результаты появятся здесь автоматически.</p>
+
+        <div id="evalResultPanel" class="hidden" aria-live="polite">
+            <div class="eval-run-meta" id="evalRunMeta"></div>
+            <div class="eval-stats">
+                <div class="eval-stat"><span>PASSED</span><strong id="evalPassed">0</strong></div>
+                <div class="eval-stat"><span>FAILED</span><strong id="evalFailed">0</strong></div>
+                <div class="eval-stat"><span>ERRORS</span><strong id="evalErrors">0</strong></div>
+                <div class="eval-stat"><span>SKIPPED</span><strong id="evalSkipped">0</strong></div>
+            </div>
+            <details id="evalLogDetails" class="eval-log-details">
+                <summary>Лог выполнения pytest</summary>
+                <pre id="evalLog" class="eval-log">Ожидание вывода pytest…</pre>
+            </details>
+        </div>
+    </section>
 </main>
 
 <script>
@@ -516,6 +643,9 @@
     let defaultJudgePrompt = "";
     let lastEvidence = [];
     let battleSelection = null;
+    let evalBusy = false;
+    let evalPollTimer = null;
+    let currentEvalRunId = null;
 
     // Fallback использует те же локальные ключи и теги, что и ai_service.py.
     // При успешной загрузке эти объекты заменяются конфигурацией backend.
@@ -727,10 +857,11 @@
     }
 
     function setControlsDuringBattle(isBusy) {
-        $("runBtn").disabled = isBusy;
-        $("model1").disabled = isBusy;
-        $("model2").disabled = isBusy;
-        $("judgeModel").disabled = isBusy;
+        const disabled = isBusy || evalBusy;
+        $("runBtn").disabled = disabled;
+        $("model1").disabled = disabled;
+        $("model2").disabled = disabled;
+        $("judgeModel").disabled = disabled;
     }
 
     function renderWinner(data) {
@@ -797,7 +928,7 @@
     }
 
     async function runArena() {
-        if (arenaState === "generating" || arenaState === "judging") return;
+        if (evalBusy || arenaState === "generating" || arenaState === "judging") return;
 
         const selectedA = $("model1").value;
         const selectedB = $("model2").value;
@@ -871,6 +1002,7 @@
     }
 
     async function judgeArena() {
+        if (evalBusy) return;
         if (arenaState !== "generated" || !currentBattleId || !battleSelection) {
             alert("Сначала запустите сравнение моделей.");
             return;
@@ -917,6 +1049,159 @@
         }
     }
 
+
+    const EVAL_SUITE_NAMES = {
+        correctness: "Корректность выбора победителя",
+        reasoning: "Качество аргументации Judge",
+        all: "Полный прогон DeepEval"
+    };
+
+    function setEvalBusy(isBusy) {
+        evalBusy = isBusy;
+        ["evalCorrectnessBtn", "evalReasoningBtn", "evalAllBtn"].forEach(id => {
+            $(id).disabled = isBusy;
+        });
+
+        const arenaBusy = arenaState === "generating" || arenaState === "judging";
+        $("runBtn").disabled = isBusy || arenaBusy || !$("model1").value || !$("model2").value;
+        $("model1").disabled = isBusy || arenaBusy;
+        $("model2").disabled = isBusy || arenaBusy;
+        $("judgeModel").disabled = isBusy || arenaBusy;
+        $("judgeBtn").disabled = isBusy || arenaBusy || arenaState !== "generated" || !currentBattleId;
+    }
+
+    function renderEvalRun(run) {
+        const statusLabels = {
+            running: "Выполняется",
+            passed: "Успешно",
+            failed: "Есть ошибки"
+        };
+        const statusClasses = {
+            running: "warn",
+            passed: "ok",
+            failed: "error"
+        };
+        const status = run.status || "failed";
+        const statusElement = $("evalStatus");
+        statusElement.className = `status-pill ${statusClasses[status] || "error"}`;
+        statusElement.textContent = statusLabels[status] || "Ошибка запуска";
+
+        const counts = run.counts || {};
+        $("evalPassed").textContent = String(counts.passed || 0);
+        $("evalFailed").textContent = String(counts.failed || 0);
+        $("evalErrors").textContent = String(counts.errors || 0);
+        $("evalSkipped").textContent = String(counts.skipped || 0);
+        $("evalRunMeta").textContent = [
+            run.label || EVAL_SUITE_NAMES[run.suite] || run.suite,
+            `Run ID: ${run.run_id}`,
+            run.duration_seconds == null ? "Время: выполняется" : `Время: ${run.duration_seconds} сек.`,
+            run.return_code == null ? "Код завершения: —" : `Код завершения: ${run.return_code}`
+        ].join(" · ");
+
+        $("evalLog").textContent = run.log || (status === "running" ? "Процесс pytest запущен, ожидание вывода…" : "Лог пуст.");
+        $("evalResultPanel").classList.remove("hidden");
+        if (status === "failed") $("evalLogDetails").open = true;
+
+        if (status === "running") {
+            $("evalHint").textContent = "Тесты выполняются в отдельном процессе. Arena временно заблокирована, чтобы не конкурировать с evaluator за ресурсы Ollama.";
+        } else if (status === "passed") {
+            $("evalHint").textContent = `Набор «${run.label || run.suite}» завершился успешно. Подробный вывод доступен в логе.`;
+        } else {
+            $("evalHint").textContent = `Набор «${run.label || run.suite}» завершился с ошибками. Откройте лог pytest для диагностики.`;
+        }
+    }
+
+    async function pollEvalRun(runId) {
+        if (!runId) return;
+        try {
+            const run = await getJson(`/api/evals/runs/${encodeURIComponent(runId)}`);
+            renderEvalRun(run);
+            if (run.status === "running") {
+                setEvalBusy(true);
+                evalPollTimer = window.setTimeout(() => pollEvalRun(runId), 1600);
+            } else {
+                evalPollTimer = null;
+                setEvalBusy(false);
+            }
+        } catch (error) {
+            $("evalStatus").className = "status-pill warn";
+            $("evalStatus").textContent = "Ожидание API";
+            $("evalHint").textContent = `Не удалось получить статус запуска: ${error.message}. Повторная попытка через 3 секунды.`;
+            evalPollTimer = window.setTimeout(() => pollEvalRun(runId), 3000);
+        }
+    }
+
+    async function startEval(suite) {
+        if (evalBusy) return;
+        if (arenaState === "generating" || arenaState === "judging") {
+            alert("Сначала дождитесь завершения текущей Arena-битвы.");
+            return;
+        }
+        if (!EVAL_SUITE_NAMES[suite]) return;
+
+        if (evalPollTimer !== null) {
+            window.clearTimeout(evalPollTimer);
+            evalPollTimer = null;
+        }
+        setEvalBusy(true);
+        currentEvalRunId = null;
+        $("evalStatus").className = "status-pill warn";
+        $("evalStatus").textContent = "Запуск…";
+        $("evalHint").textContent = `Подготовка набора «${EVAL_SUITE_NAMES[suite]}»…`;
+        $("evalLog").textContent = "Создание отдельного процесса pytest…";
+        $("evalResultPanel").classList.remove("hidden");
+        $("evalLogDetails").open = true;
+
+        try {
+            const response = await fetch("/api/evals/runs", {
+                method: "POST",
+                headers: {"Content-Type": "application/json", "Accept": "application/json"},
+                body: JSON.stringify({suite})
+            });
+            let data;
+            try {
+                data = await response.json();
+            } catch {
+                throw new Error(`Backend вернул некорректный JSON (HTTP ${response.status}).`);
+            }
+
+            if (response.status === 409) {
+                const history = await getJson("/api/evals/runs");
+                const active = (history.runs || []).find(item => item.status === "running");
+                if (active) {
+                    currentEvalRunId = active.run_id;
+                    await pollEvalRun(currentEvalRunId);
+                    return;
+                }
+            }
+            if (!response.ok) throw new Error(data.detail || `Ошибка запуска DeepEval (HTTP ${response.status})`);
+
+            currentEvalRunId = data.run_id;
+            renderEvalRun(data);
+            await pollEvalRun(currentEvalRunId);
+        } catch (error) {
+            setEvalBusy(false);
+            $("evalStatus").className = "status-pill error";
+            $("evalStatus").textContent = "Ошибка запуска";
+            $("evalHint").textContent = error.message;
+            $("evalLog").textContent = error.stack || error.message;
+            $("evalResultPanel").classList.remove("hidden");
+            $("evalLogDetails").open = true;
+        }
+    }
+
+    async function restoreLatestEvalRun() {
+        try {
+            const history = await getJson("/api/evals/runs");
+            const latest = (history.runs || [])[0];
+            if (!latest) return;
+            currentEvalRunId = latest.run_id;
+            await pollEvalRun(currentEvalRunId);
+        } catch (error) {
+            console.warn("Не удалось восстановить последний запуск DeepEval:", error);
+        }
+    }
+
     function escapeHtml(value) {
         const div = document.createElement("div");
         div.textContent = String(value ?? "");
@@ -936,6 +1221,7 @@
     window.addEventListener("DOMContentLoaded", async () => {
         await loadPromptsAndModels();
         fillSelects();
+        await restoreLatestEvalRun();
     });
 </script>
 </body>
