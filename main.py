@@ -12,7 +12,8 @@ from starlette.staticfiles import StaticFiles
 
 from src.database.database import async_engine
 from src.routers import llm_arena
-from src.routers.evals import EvaluationRunManager, router as evals_router
+from src.routers.evals import EvaluationRunManager
+from src.routers.evals import router as evals_router
 from src.services.ai_service import OLLAMA_BASE_URL
 
 logger = logging.getLogger("uvicorn")
@@ -21,7 +22,7 @@ logger = logging.getLogger("uvicorn")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DeepEval subprocess manager is scoped to this FastAPI worker.
-    app.state.evaluation_run_manager = EvaluationRunManager(Path(__file__).resolve().parent)
+    app.state.evaluation_run_manager = EvaluationRunManager(Path(__file__).resolve().parent)  # noqa: ASYNC240
 
     # One shared aiohttp session is used by the Arena router for local Ollama calls.
     app.state.http_session = aiohttp.ClientSession(
