@@ -29,9 +29,7 @@ logger = logging.getLogger("llm_arena_router")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -83,9 +81,9 @@ async def get_judge_prompt():
 @router.post("/compare")
 @limiter.limit("6/minute")
 async def run_comparison(
-        request: Request,
-        payload: CompareRequest,
-        db: AsyncSession = Depends(get_async_db),
+    request: Request,
+    payload: CompareRequest,
+    db: AsyncSession = Depends(get_async_db),
 ):
     session = request.app.state.http_session
     models = payload.models or DEFAULT_MODELS
@@ -146,10 +144,10 @@ async def run_comparison(
 @router.post("/winner/{battle_id}", response_model=WinnerResponse)
 @limiter.limit("10/minute")
 async def declare_winner(
-        battle_id: int,
-        payload: JudgeWinnerRequest,
-        request: Request,
-        db: AsyncSession = Depends(get_async_db),
+    battle_id: int,
+    payload: JudgeWinnerRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
 ):
     battle = await get_battle_by_id(db, battle_id)
     if not battle:
@@ -227,9 +225,7 @@ async def download_result(battle_id: int, db: AsyncSession = Depends(get_async_d
     return Response(
         content=markdown,
         media_type="text/markdown",
-        headers={
-            "Content-Disposition": f"attachment; filename=battle_{battle_id}_result.md"
-        },
+        headers={"Content-Disposition": f"attachment; filename=battle_{battle_id}_result.md"},
     )
 
 
@@ -252,9 +248,9 @@ async def get_last_result(db: AsyncSession = Depends(get_async_db)):
 @router.post("/battle", response_model=WinnerResponse)
 @limiter.limit("5/minute")
 async def full_battle(
-        payload: FullBattleRequest,
-        request: Request,
-        db: AsyncSession = Depends(get_async_db),
+    payload: FullBattleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
 ):
     models = payload.models
 

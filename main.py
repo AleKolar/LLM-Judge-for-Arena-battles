@@ -1,11 +1,12 @@
-from contextlib import asynccontextmanager
 import logging
+from contextlib import asynccontextmanager
 
 import aiohttp
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
+from starlette.requests import Request
+from starlette.responses import HTMLResponse
 from starlette.staticfiles import StaticFiles
 
 from src.database.database import async_engine
@@ -31,10 +32,7 @@ async def lifespan(app: FastAPI):
         async with app.state.http_session.get(ollama_tags_url) as response:
             if response.status == 200:
                 data = await response.json()
-                model_names = [
-                    item.get("name", "unknown")
-                    for item in data.get("models", [])
-                ]
+                model_names = [item.get("name", "unknown") for item in data.get("models", [])]
                 if model_names:
                     logger.info(
                         "✅ Ollama доступен. Локальные модели: %s",
@@ -84,11 +82,13 @@ app.include_router(llm_arena.router)
 # async def index(request: Request):
 #     return templates.TemplateResponse(request=request, name="index.html")
 
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index_ollama.html",
     )
+
 
 # uvicorn main:app --port 8000

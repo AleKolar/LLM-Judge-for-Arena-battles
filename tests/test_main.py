@@ -14,10 +14,10 @@ from src.schemas.schemas import (
     CompareRequest,
     WinnerRequest,
 )
-from src.services.ai_service import ask_judge, judge_winner
+from src.services.ai_service import judge_winner
 from src.services.arena_result import get_battle_by_id, get_last_result_service
 from src.services.download_service import generate_battle_markdown
-from src.utils.normalize import normalize_evidence, to_md
+from utils.normalize import normalize_evidence, to_md
 
 # Ключи моделей, реально существующие в AVAILABLE_MODELS
 VALID_MODEL_A = "llama-3.1-8b"
@@ -859,7 +859,7 @@ async def test_get_last_result_service_empty():
 
 def test_normalize_decision():
     """Функция normalize_decision: валидный, неполный и не-словарь."""
-    from src.utils.normalize import normalize_decision
+    from utils.normalize import normalize_decision
 
     full = {
         "winners": ["model-a"],

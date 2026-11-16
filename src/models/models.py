@@ -44,7 +44,6 @@ class BattleHistoryResponse(BaseModel):
 
 class FullBattleRequest(BaseModel):
     models: list[str]
-    judge_model: str = "gpt-oss-120b"   # ← заодно дефолт на актуальный
+    judge_model: str = "qwen3-8b"
     prompt: str | None = None
     judge_prompt: str | None = None
-
